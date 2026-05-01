@@ -1,0 +1,104 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@source "../node_modules/streamdown/dist/*.js";
+
+:root {
+  --background: #f7f5f0;
+  --foreground: #1f2933;
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --muted: oklch(0.96 0.01 88);
+  --muted-foreground: oklch(0.45 0.02 245);
+  --border: oklch(0.84 0.02 82);
+  --input: oklch(0.84 0.02 82);
+  --primary: oklch(0.34 0.07 220);
+  --primary-foreground: oklch(0.985 0 0);
+  --radius: 0.5rem;
+  --font-sans-local: Arial, Helvetica, sans-serif;
+  --font-mono-local: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans-local);
+  --font-mono: var(--font-mono-local);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --radius: 0.5rem;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans-local);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.animated-markdown-root {
+  scrollbar-gutter: stable;
+}
+
+.animated-markdown-active-region {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  min-height: 1lh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.animated-markdown-caret {
+  display: inline-block;
+  width: var(--animated-markdown-caret-width, 2px);
+  height: var(--animated-markdown-caret-height, 1.2em);
+  margin-inline: 1px;
+  transform: translateY(0.18em);
+  opacity: var(--animated-markdown-caret-opacity, 0);
+  background: var(--animated-markdown-caret-color, currentColor);
+  animation: animated-markdown-caret-blink 900ms steps(2, start) infinite;
+  transition: opacity 300ms ease;
+}
+
+@keyframes animated-markdown-caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  46%,
+  100% {
+    opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-markdown-caret {
+    animation: none;
+  }
+}
