@@ -58,31 +58,18 @@ button:disabled {
   scrollbar-gutter: stable;
 }
 
-.animated-markdown-active-region {
-  display: block;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: inherit;
-  line-height: inherit;
-  color: inherit;
-  min-height: 1lh;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 .animated-markdown-caret {
-  display: inline-block;
+  display: block;
   width: var(--animated-markdown-caret-width, 2px);
   height: var(--animated-markdown-caret-height, 1.2em);
-  margin-inline: 1px;
-  transform: translateY(0.18em);
+  border-radius: 999px;
   opacity: var(--animated-markdown-caret-opacity, 0);
   background: var(--animated-markdown-caret-color, currentColor);
-  animation: animated-markdown-caret-blink 900ms steps(2, start) infinite;
+  animation: var(--animated-markdown-caret-animation, none);
+  pointer-events: none;
+  transform: translateX(-50%);
   transition: opacity 300ms ease;
+  will-change: left, top, height, opacity;
 }
 
 @keyframes animated-markdown-caret-blink {

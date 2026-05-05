@@ -53,23 +53,23 @@ included profiling script. That helper can:
 
 ## R5 Markdown Strategy
 
-During animation the component splits the document into three regions:
+During animation the component keeps the visible document inside a single
+`Streamdown` render:
 
-- Stable markdown before the active patch, rendered by memoized `Streamdown`.
-- A narrowly scoped active patch region rendered as plain text with one
-  persistent caret.
-- Stable markdown after the active patch, rendered by memoized `Streamdown`.
+- The animation engine mutates hidden DOM spans that hold the active edit
+  buffer.
+- A `MutationObserver` recomposes the full markdown string with an invisible
+  caret marker.
+- `Streamdown` renders that transient document in streaming mode so incomplete
+  markdown stays in viewer-style presentation while the caret is overlaid at
+  the live edit point.
 
 Edit patch sets are normalized into smaller animation patches before playback.
 That means inline edits usually animate only the changed token, and
 block-straddling edits are decomposed into smaller insert/delete steps when the
 internal diff can prove they are equivalent. This keeps the surrounding prose
-visible and avoids feeding invalid intermediate markdown into Streamdown on
-every frame.
-
-If a patch cannot be decomposed safely, the component falls back to animating
-the original patch region as plain text. The settled state is always the
-semantic Streamdown render.
+visible and keeps the live edit window narrowly scoped even when the settled
+document is much larger.
 
 ## Restore Diff
 
@@ -132,15 +132,14 @@ Per character, the animation mutates only the active patch text nodes:
 
 - deletion uses `Text.deleteData()` on the shrinking find region
 - typing uses `Text.appendData()` on the typed region
-- stable before/after markdown chunks are memoized and keep the same text props
-  throughout the patch
+- each mutation triggers one visible `Streamdown` rerender from the recomposed
+  markdown snapshot
 
 Patch sets are also normalized into smaller animation steps before playback,
-which keeps the active plain-text region tight even for block-level edits. The
-full document string is rebuilt once per patch boundary, not per frame. This
-keeps per-frame work independent of total document length for normal edit and
-restore patches. The one exception is Scenario 1, where the active patch is the
-entire new document by definition.
+which keeps the actively changing region tight even for block-level edits. The
+hidden-span mutations remain local, while the visible document stays inside the
+rendered markdown viewer throughout the edit. Scenario 1 is still the heaviest
+case because it animates creation from an empty document.
 
 Measured locally from a clean checkout on this machine:
 
@@ -233,9 +232,9 @@ Coverage includes:
 
 ## Known Limitations
 
-- The active patch region is still plain text while moving. Shrinking the region
-  aggressively makes that much less visible than a full-block swap, but it is
-  not a live formatted markdown preview.
+- Live edit frames depend on `Streamdown`'s incomplete-markdown heuristics.
+  Extremely ambiguous token-by-token states may momentarily favor a nearby
+  markdown interpretation while still staying inside the rendered viewer.
 - Scroll comfort logic targets the browser viewport. Nested custom scroll panes
   may need a host-specific scroll adapter.
 - Scenario 1 necessarily has a whole-document active region because it animates
