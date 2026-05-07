@@ -3,19 +3,12 @@
 import {
   forwardRef,
   memo,
-  useCallback,
-  useEffect,
   useImperativeHandle,
   useLayoutEffect,
-  useRef,
-  useState,
   type CSSProperties,
 } from "react";
 import { Streamdown } from "streamdown";
-import type {
-  AnimatedMarkdownHandle,
-  AnimatedMarkdownProps,
-} from "./types";
+import type { AnimatedMarkdownHandle, AnimatedMarkdownProps } from "./types";
 import { useAnimationEngine } from "./useAnimation";
 
 function joinClasses(...classes: Array<string | undefined>) {
@@ -66,6 +59,33 @@ function findMarkerInDom(
     }
   }
   return null;
+}
+
+function getInsertionCaretRect(marker: { node: Text; offset: number }) {
+  const range = document.createRange();
+  const insertionOffset = marker.offset + CARET_MARKER.length;
+
+  range.setStart(marker.node, insertionOffset);
+  range.collapse(true);
+  const probe = document.createElement("span");
+  const parent = marker.node.parentNode;
+
+  probe.setAttribute("aria-hidden", "true");
+  probe.setAttribute("data-animated-markdown-caret-probe", "true");
+  probe.style.display = "inline-block";
+  probe.style.width = "0";
+  probe.style.height = "1em";
+  probe.style.margin = "0";
+  probe.style.padding = "0";
+  probe.style.overflow = "hidden";
+  probe.style.pointerEvents = "none";
+
+  range.insertNode(probe);
+  const rect = probe.getBoundingClientRect();
+  probe.remove();
+  parent?.normalize();
+
+  return rect;
 }
 
 const HIDDEN_STYLE: CSSProperties = {
@@ -123,14 +143,24 @@ export const AnimatedMarkdown = forwardRef<
     proseClassName,
   );
 
-  // ── Composed-text tracking for "split" mode ──────────────────────
-  // The animation engine manipulates hidden spans via direct DOM ops.
-  // A MutationObserver watches for character-level changes and recomposes
-  // the full markdown text (with a caret marker) so MarkdownChunk can
-  // render it — the user never sees raw markdown syntax.
-  const [composedText, setComposedText] = useState("");
-  const hiddenRegionRef = useRef<HTMLDivElement | null>(null);
-  const renderedContentRef = useRef<HTMLDivElement | null>(null);
+  // const composedText =
+  //   state.mode === "split"
+  //     ? state.beforeText +
+  //       state.activeBeforeText +
+  //       CARET_MARKER +
+  //       state.activeDeleteText +
+  //       state.activeAfterText +
+  //       state.afterText
+  //     : "";
+  const composedText =
+    state.mode === "split"
+      ? state.beforeText +
+        state.activeBeforeText +
+        CARET_MARKER +
+        state.activeDeleteText +
+        state.activeAfterText +
+        state.afterText
+      : "";
 
   // Set initial text content on hidden spans imperatively so React
   // never manages their children (preventing re-render resets).
@@ -152,84 +182,69 @@ export const AnimatedMarkdown = forwardRef<
     activeAfterRef,
   ]);
 
-  /** Read hidden spans and build full text with caret marker. */
-  const readComposed = useCallback(() => {
-    const before = activeBeforeRef.current?.textContent ?? "";
-    const del = activeDeleteRef.current?.textContent ?? "";
-    const after = activeAfterRef.current?.textContent ?? "";
-    return (
-      state.beforeText + before + CARET_MARKER + del + after + state.afterText
-    );
-  }, [state.beforeText, state.afterText, activeBeforeRef, activeDeleteRef, activeAfterRef]);
-
-  // MutationObserver watches the hidden spans for character-level mutations
-  // from the animation engine's appendCharacter / deleteLastCharacter calls.
-  useEffect(() => {
-    if (state.mode !== "split") {
-      setComposedText("");
-      return;
-    }
-
-    const region = hiddenRegionRef.current;
-    if (!region) return;
-
-    // Initial composition
-    setComposedText(readComposed());
-
-    const observer = new MutationObserver(() => {
-      const next = readComposed();
-      setComposedText((prev) => (prev === next ? prev : next));
-    });
-
-    observer.observe(region, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    return () => observer.disconnect();
-  }, [state.mode, readComposed]);
-
   // ── Caret overlay positioning ────────────────────────────────────
   // After the rendered markdown updates, find the marker in the DOM
   // and position the absolutely-placed caret element there.
+
+  // useLayoutEffect(() => {
+  //   if (state.mode !== "split" || !state.caretVisible) return;
+
+  //   const contentEl = containerRef.current?.querySelector<HTMLElement>(
+  //     '[data-animated-markdown-content="true"]',
+  //   );
+  //   const caret = caretRef.current;
+  //   if (!contentEl || !caret) return;
+
+  //   const marker = findMarkerInDom(contentEl);
+  //   if (!marker) return;
+
+  //   const markerRect = getInsertionCaretRect(marker);
+  //   if (!markerRect) return;
+
+  //   const containerRect = contentEl.getBoundingClientRect();
+  //   const markerHeight = markerRect.height > 0 ? `${markerRect.height}px` : "";
+
+  //   caret.style.position = "absolute";
+  //   // Use the collapsed insertion point rather than the marker span width.
+  //   // That keeps the caret pinned to the live edit location even when the
+  //   // hidden marker crosses wrapped lines or browsers assign it glyph width.
+  //   caret.style.left = `${markerRect.left - containerRect.left}px`;
+  //   caret.style.top = `${markerRect.top - containerRect.top}px`;
+  //   caret.style.height = markerHeight;
+  // }, [composedText, state.mode, state.caretVisible, caretRef, containerRef]);
+
   useLayoutEffect(() => {
     if (state.mode !== "split" || !state.caretVisible) return;
 
-    const contentEl = renderedContentRef.current;
-    const caret = caretRef.current;
-    if (!contentEl || !caret) return;
+    const frame = requestAnimationFrame(() => {
+      const contentEl = containerRef.current?.querySelector<HTMLElement>(
+        '[data-animated-markdown-content="true"]',
+      );
 
-    const marker = findMarkerInDom(contentEl);
-    if (!marker) return;
+      const caret = caretRef.current;
 
-    const range = document.createRange();
-    range.setStart(marker.node, marker.offset);
-    range.setEnd(marker.node, marker.offset + CARET_MARKER.length);
+      if (!contentEl || !caret) return;
 
-    // jsdom doesn't implement Range.getBoundingClientRect
-    if (typeof range.getBoundingClientRect !== "function") return;
+      const marker = findMarkerInDom(contentEl);
 
-    const markerRect = range.getBoundingClientRect();
-    const containerRect = contentEl.getBoundingClientRect();
-    const markerHeight =
-      markerRect.height > 0 ? `${markerRect.height}px` : "";
+      if (!marker) return;
 
-    caret.style.position = "absolute";
-    // Anchor the overlay to the insertion point at the end of the hidden
-    // marker, not its leading edge. Some browsers report a non-zero width
-    // for zero-width characters, which can otherwise place the caret one
-    // visible character early.
-    caret.style.left = `${markerRect.right - containerRect.left}px`;
-    caret.style.top = `${markerRect.top - containerRect.top}px`;
-    caret.style.height = markerHeight;
-  }, [composedText, state.mode, state.caretVisible, caretRef]);
+      const markerRect = getInsertionCaretRect(marker);
+
+      const containerRect = contentEl.getBoundingClientRect();
+
+      caret.style.left = `${markerRect.left - containerRect.left}px`;
+      caret.style.top = `${markerRect.top - containerRect.top}px`;
+      caret.style.height = `${markerRect.height}px`;
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [composedText, state.mode, state.caretVisible]);
 
   // The text passed to MarkdownChunk: during split mode we include the
   // zero-width marker so the layout effect can locate it for caret positioning.
   // Zero-width spaces are invisible so they don't affect the rendered output.
-  const displayText =
-    state.mode === "split" ? composedText : state.settledText;
+  const displayText = state.mode === "split" ? composedText : state.settledText;
   const useStreamingMarkdown = state.mode === "split";
 
   return (
@@ -250,7 +265,10 @@ export const AnimatedMarkdown = forwardRef<
       }
     >
       {/* Always rendered markdown — never raw text */}
-      <div ref={renderedContentRef} style={{ position: "relative" }}>
+      <div
+        data-animated-markdown-content="true"
+        style={{ position: "relative" }}
+      >
         <MarkdownChunk
           className={streamdownClasses}
           isStreaming={useStreamingMarkdown}
@@ -271,7 +289,7 @@ export const AnimatedMarkdown = forwardRef<
       {/* Hidden region — animation engine manipulates these via DOM ops.
           No React children so re-renders don't reset imperative mutations. */}
       {state.mode === "split" && (
-        <div ref={hiddenRegionRef} aria-hidden="true" style={HIDDEN_STYLE}>
+        <div aria-hidden="true" style={HIDDEN_STYLE}>
           <span ref={activeBeforeRef} />
           <span ref={activeDeleteRef} />
           <span ref={activeAfterRef} />

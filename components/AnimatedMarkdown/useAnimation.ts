@@ -711,6 +711,9 @@ export function useAnimationEngine({
           activeDeleteRef,
           findUnits[findUnits.length - 1 - deletedCount].length,
         );
+        setSplitSegments(readDomSegments(), {
+          phase: "deleting",
+        });
       }
 
       if (!isOperationCurrent(operation)) {
@@ -731,6 +734,9 @@ export function useAnimationEngine({
         await delay(getTypeDelay(typedCount, replaceUnits.length));
         await nextFrame();
         appendCharacter(activeBeforeRef, replaceUnits[typedCount]);
+        setSplitSegments(readDomSegments(), {
+          phase: "typing",
+        });
       }
 
       textRef.current =
