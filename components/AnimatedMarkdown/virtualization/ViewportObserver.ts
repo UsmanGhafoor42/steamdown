@@ -97,13 +97,17 @@ export class ViewportObserver {
         root: containerElement,
         rootMargin: "0px",
         threshold: [0, 0.25, 0.5, 0.75, 1],
-      }
+      },
     );
 
     // Listen to scroll events
-    containerElement.addEventListener("scroll", () => this.handleScroll(containerElement), {
-      passive: true,
-    });
+    containerElement.addEventListener(
+      "scroll",
+      () => this.handleScroll(containerElement),
+      {
+        passive: true,
+      },
+    );
 
     // Initial viewport state
     this.updateViewportState(containerElement);
@@ -114,7 +118,9 @@ export class ViewportObserver {
    */
   observe(element: Element, id: string): void {
     if (!this.observer) {
-      console.warn("[ViewportObserver] Not initialized. Call initialize() first.");
+      console.warn(
+        "[ViewportObserver] Not initialized. Call initialize() first.",
+      );
       return;
     }
 
@@ -181,7 +187,10 @@ export class ViewportObserver {
   /**
    * Calculate the content window for virtualized rendering.
    */
-  calculateContentWindow(totalItems: number, itemHeight: number): ContentWindow {
+  calculateContentWindow(
+    totalItems: number,
+    itemHeight: number,
+  ): ContentWindow {
     const { scrollTop, viewportHeight } = this.viewportState;
 
     // Calculate visible range
@@ -191,7 +200,10 @@ export class ViewportObserver {
 
     // Apply buffers
     const startIndex = Math.max(0, visibleStart - this.config.preRenderBuffer);
-    const endIndex = Math.min(totalItems, visibleEnd + this.config.postRenderBuffer);
+    const endIndex = Math.min(
+      totalItems,
+      visibleEnd + this.config.postRenderBuffer,
+    );
 
     // Ensure minimum visible items
     if (endIndex - startIndex < this.config.minVisibleItems) {
@@ -218,7 +230,7 @@ export class ViewportObserver {
   /**
    * Handle intersection observer callbacks.
    */
-  private handleIntersection(entries: IntersectionEntry[]): void {
+  private handleIntersection(entries: IntersectionObserverEntry[]): void {
     for (const entry of entries) {
       const id = this.observedElements.get(entry.target);
       if (!id) continue;
@@ -282,7 +294,10 @@ export class ViewportObserver {
       try {
         callback({ ...this.viewportState });
       } catch (error) {
-        console.error("[ViewportObserver] Error in subscriber callback:", error);
+        console.error(
+          "[ViewportObserver] Error in subscriber callback:",
+          error,
+        );
       }
     }
   }
@@ -319,7 +334,7 @@ export class ContentWindowManager {
 
   constructor(
     viewportObserver?: ViewportObserver,
-    config: Partial<VirtualizationConfig> = {}
+    config: Partial<VirtualizationConfig> = {},
   ) {
     this.viewportObserver = viewportObserver ?? new ViewportObserver(config);
     this.config = { ...DEFAULT_VIRTUALIZATION_CONFIG, ...config };
@@ -332,7 +347,7 @@ export class ContentWindowManager {
     // Split by lines or paragraphs
     const lines = content.split("\n");
     const chunks: string[] = [];
-    
+
     for (let i = 0; i < lines.length; i += chunkSize) {
       chunks.push(lines.slice(i, i + chunkSize).join("\n"));
     }
@@ -347,7 +362,7 @@ export class ContentWindowManager {
   getContentWindow(): ContentWindow {
     return this.viewportObserver.calculateContentWindow(
       this.chunkedContent.length,
-      this.estimatedItemHeight
+      this.estimatedItemHeight,
     );
   }
 
