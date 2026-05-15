@@ -65,6 +65,12 @@ export type AnimationState = SplitSegments & {
   activeOperation: OperationType | null;
 };
 
+type HumanPresenceCallbacks = {
+  getDelay: (context: any) => number;
+  getCursorHesitation: (distance: number) => number;
+  applyCursorJitter: (x: number, y: number) => { x: number; y: number };
+};
+
 type UseAnimationOptions = {
   baseText: string;
   versionKey?: string | number;
@@ -75,6 +81,7 @@ type UseAnimationOptions = {
   forceReducedMotion: boolean;
   animationConstants?: Partial<AnimationConstants>;
   onAnimationComplete?: (event: AnimationEvent) => void;
+  humanPresence?: HumanPresenceCallbacks;
 };
 
 const EMPTY_SEGMENTS: SplitSegments = {
@@ -126,7 +133,10 @@ function getReducedMotionPreference() {
   return window.matchMedia(REDUCED_MOTION_QUERY).matches;
 }
 
-function makeEvent(operation: QueuedOperation, cancelled: boolean): AnimationEvent {
+function makeEvent(
+  operation: QueuedOperation,
+  cancelled: boolean,
+): AnimationEvent {
   if (operation.type === "edit") {
     return {
       type: "edit",
@@ -495,7 +505,10 @@ export function useAnimationEngine({
       const patches: Patch[] = [];
       let workingText = currentText;
 
-      for (const patch of sortPatchesInDocumentOrder(currentText, patchSet.patches)) {
+      for (const patch of sortPatchesInDocumentOrder(
+        currentText,
+        patchSet.patches,
+      )) {
         if (findPatchRange(workingText, patch) === null) {
           continue;
         }
@@ -740,7 +753,11 @@ export function useAnimationEngine({
       }
 
       textRef.current =
-        segments.beforeText + regionPrefix + patch.replace + regionSuffix + segments.afterText;
+        segments.beforeText +
+        regionPrefix +
+        patch.replace +
+        regionSuffix +
+        segments.afterText;
 
       if (!isOperationCurrent(operation) || isLastPatch) {
         return;
@@ -856,10 +873,7 @@ export function useAnimationEngine({
 
   const enqueueOperation = useCallback(
     (
-      operation: Omit<
-        QueuedOperation,
-        "id" | "resolve" | "reject" | "settled"
-      >,
+      operation: Omit<QueuedOperation, "id" | "resolve" | "reject" | "settled">,
     ) => {
       return new Promise<void>((resolve, reject) => {
         const queuedOperation: QueuedOperation = {
