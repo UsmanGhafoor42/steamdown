@@ -29,4 +29,11 @@ yarn-error.log*
 # Coverage
 coverage/
 .nyc_output/
+
+# Next.js
+.next/
+out/
+
+# macOS
+.DS_Store
 ```

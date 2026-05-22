@@ -14,6 +14,8 @@ export interface CursorState {
 export class CursorHesitationEngine {
   private config: PresenceConfig;
   private currentState: CursorState = { x: 0, y: 0, isMoving: false };
+  private lastPositionKey: string | null = null;
+  private cachedJitterOffset = { x: 0, y: 0 };
 
   constructor(config: PresenceConfig) {
     this.config = config;
@@ -23,30 +25,23 @@ export class CursorHesitationEngine {
     this.config = { ...this.config, ...config };
   }
 
-  /**
-   * Calculates the delay before the cursor "commits" to typing the next character.
-   * Simulates the eye-hand coordination lag.
-   */
   public getHesitationDistance(distancePixels: number): number {
     if (!this.config.cursorHesitation) {
       return 0;
     }
 
-    // Longer distances cause more hesitation (looking for the key/position)
     if (distancePixels > 200) {
       return 80 + Math.random() * 40;
-    } else if (distancePixels > 50) {
+    }
+
+    if (distancePixels > 50) {
       return 30 + Math.random() * 20;
     }
 
-    // Tiny movements might still have micro-jitters
     return Math.random() * 10;
   }
 
-  /**
-   * Generates a slight "overshoot" or "jitter" in cursor position
-   * to mimic non-robotic movement.
-   */
+  /** Single jitter offset per cursor movement — avoids frame-by-frame vibration. */
   public applyJitter(
     targetX: number,
     targetY: number,
@@ -55,13 +50,20 @@ export class CursorHesitationEngine {
       return { x: targetX, y: targetY };
     }
 
-    const jitterRange = this.config.intensity === "expressive" ? 4 : 2;
-    const jitterX = Math.random() * jitterRange * 2 - jitterRange;
-    const jitterY = Math.random() * jitterRange * 2 - jitterRange;
+    const positionKey = `${Math.round(targetX)}:${Math.round(targetY)}`;
+
+    if (positionKey !== this.lastPositionKey) {
+      const jitterRange = this.config.intensity === "expressive" ? 3 : 1.5;
+      this.cachedJitterOffset = {
+        x: Math.random() * jitterRange * 2 - jitterRange,
+        y: Math.random() * jitterRange * 2 - jitterRange,
+      };
+      this.lastPositionKey = positionKey;
+    }
 
     return {
-      x: targetX + jitterX,
-      y: targetY + jitterY,
+      x: targetX + this.cachedJitterOffset.x,
+      y: targetY + this.cachedJitterOffset.y,
     };
   }
 }

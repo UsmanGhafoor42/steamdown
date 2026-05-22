@@ -30,6 +30,25 @@ export type AnimationConstants = {
   maxDeleteTotalMs: number;
 };
 
+export type PresenceIntensity =
+  | "subtle"
+  | "normal"
+  | "expressive"
+  | "minimal"
+  | "conversational";
+
+export type PresenceConfig = {
+  intensity: PresenceIntensity;
+  variableSpeed: boolean;
+  contextualPauses: boolean;
+  cursorHesitation: boolean;
+  selectionSimulation: boolean;
+  rewritePatterns: boolean;
+  thinkingIndicator: boolean;
+  baseSpeed: number;
+  speedVariance: number;
+};
+
 export type AnimatedMarkdownProps = {
   /**
    * Authoritative settled state. Changing this cancels all in-flight and queued
@@ -46,6 +65,8 @@ export type AnimatedMarkdownProps = {
   forceReducedMotion?: boolean;
   animationConstants?: Partial<AnimationConstants>;
   onAnimationComplete?: (event: AnimationEvent) => void;
+  presenceIntensity?: PresenceIntensity;
+  presenceConfig?: Partial<PresenceConfig>;
 };
 
 export type AnimatedMarkdownHandle = {

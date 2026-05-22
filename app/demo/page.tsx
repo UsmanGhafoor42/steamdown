@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatedMarkdown } from "@/components/AnimatedMarkdown/AnimatedMarkdown";
+import { MultiStreamView } from "@/components/AnimatedMarkdown/MultiStreamView";
 import {
   BASE_STRATEGY_DOC,
   BASE_STRATEGY_DOC_V2,
@@ -14,11 +15,52 @@ import {
 import type {
   AnimatedMarkdownHandle,
   AnimationEvent,
+  PresenceIntensity,
   TypeSpeed,
 } from "@/components/AnimatedMarkdown/types";
 
 const typeSpeedOptions: TypeSpeed[] = ["slow", "normal", "fast"];
 const speedMultipliers = [0.5, 1, 2] as const;
+const presenceOptions: PresenceIntensity[] = [
+  "minimal",
+  "subtle",
+  "conversational",
+  "normal",
+  "expressive",
+];
+
+const multiStreamSlots = [
+  {
+    id: "stream-a",
+    label: "Stream A — Thesis edit",
+    baseText: BASE_STRATEGY_DOC,
+    versionKey: "multi-a",
+    patchSet: {
+      label: "Stream A",
+      patches: [
+        {
+          find: "short-horizon continuation",
+          replace: "short-horizon momentum continuation",
+        },
+      ],
+    },
+  },
+  {
+    id: "stream-b",
+    label: "Stream B — Risk edit",
+    baseText: BASE_STRATEGY_DOC,
+    versionKey: "multi-b",
+    patchSet: {
+      label: "Stream B",
+      patches: [
+        {
+          find: "- Daily loss limit: 2%",
+          replace: "- Daily loss limit: 1.5%",
+        },
+      ],
+    },
+  },
+] as const;
 
 type DemoMetrics = {
   fps: number;
@@ -103,6 +145,9 @@ export default function DemoPage() {
   const [caretColor, setCaretColor] = useState("#2563eb");
   const [restoreCaretColor, setRestoreCaretColor] = useState("#b45309");
   const [selectedScenarioId, setSelectedScenarioId] = useState("scenario-2");
+  const [presenceIntensity, setPresenceIntensity] =
+    useState<PresenceIntensity>("normal");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<AnimationEvent | null>(null);
   const [displayedTextSnapshot, setDisplayedTextSnapshot] = useState(baseText);
   const versionSequenceRef = useRef(0);
@@ -149,6 +194,7 @@ export default function DemoPage() {
 
     setSelectedScenarioId(scenarioId);
     setLastEvent(null);
+    setStatusMessage(null);
 
     if (scenario.id === "scenario-5") {
       setForceReducedMotion(true);
@@ -181,6 +227,7 @@ export default function DemoPage() {
       }
 
       if (scenario.id === "scenario-9") {
+        setStatusMessage("Simulation: Stream interrupted — version key reset");
         const playPromise = markdownRef.current?.play(scenario.patchSet);
 
         window.setTimeout(() => {
@@ -188,7 +235,12 @@ export default function DemoPage() {
           setVersionKey(`v4:${versionSequenceRef.current}`);
         }, 500);
 
-        await playPromise;
+        try {
+          await playPromise;
+        } finally {
+          window.setTimeout(() => setStatusMessage(null), 4000);
+        }
+
         return;
       }
 
@@ -325,6 +377,23 @@ export default function DemoPage() {
                 {versions.map((version) => (
                   <option key={version.key} value={version.key}>
                     {version.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="mt-4 block text-sm font-medium text-zinc-600">
+              Presence intensity
+              <select
+                className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-zinc-950"
+                value={presenceIntensity}
+                onChange={(event) =>
+                  setPresenceIntensity(event.target.value as PresenceIntensity)
+                }
+              >
+                {presenceOptions.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {preset}
                   </option>
                 ))}
               </select>
@@ -468,6 +537,15 @@ export default function DemoPage() {
         </aside>
 
         <section className="min-h-[calc(100vh-2.5rem)] overflow-auto rounded-md border border-zinc-200 bg-white p-6 shadow-sm">
+          {statusMessage ? (
+            <div
+              className="mx-auto mb-4 max-w-3xl rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900"
+              role="status"
+            >
+              {statusMessage}
+            </div>
+          ) : null}
+
           <AnimatedMarkdown
             ref={markdownRef}
             baseText={baseText}
@@ -479,8 +557,13 @@ export default function DemoPage() {
             typeSpeed={typeSpeed}
             speedMultiplier={speedMultiplier}
             forceReducedMotion={forceReducedMotion}
+            presenceIntensity={presenceIntensity}
             onAnimationComplete={setLastEvent}
           />
+
+          <div className="mx-auto mt-10 max-w-5xl border-t border-zinc-200 pt-8">
+            <MultiStreamView streams={[...multiStreamSlots]} />
+          </div>
         </section>
       </div>
     </main>

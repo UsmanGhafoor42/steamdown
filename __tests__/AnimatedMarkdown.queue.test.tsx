@@ -795,11 +795,11 @@ describe("AnimatedMarkdown imperative queue", () => {
 
     expect(window.scrollTo).toHaveBeenCalledTimes(2);
     expect(window.scrollTo).toHaveBeenNthCalledWith(1, {
-      top: 1090,
+      top: 1000,
       behavior: "smooth",
     });
     expect(window.scrollTo).toHaveBeenNthCalledWith(2, {
-      top: 2180,
+      top: 2000,
       behavior: "smooth",
     });
     rectSpy.mockRestore();

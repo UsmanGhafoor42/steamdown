@@ -313,11 +313,15 @@ import {
   type CSSProperties,
 } from "react";
 import { Streamdown } from "streamdown";
-import type { AnimatedMarkdownHandle, AnimatedMarkdownProps } from "./types";
+import type {
+  AnimatedMarkdownHandle,
+  AnimatedMarkdownProps,
+  PresenceConfig,
+  PresenceIntensity,
+} from "./types";
 import { useAnimationEngine } from "./useAnimation";
-// Phase 2 Imports
+import { applyDiffHighlightsToText } from "./diffHighlights";
 import { useHumanPresence } from "./presence/useHumanPresence";
-import type { PresenceIntensity, PresenceConfig } from "./presence/types";
 
 function joinClasses(...classes: Array<string | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -369,11 +373,71 @@ function findMarkerInDom(
   return null;
 }
 
+function getPreviousTextNode(node: Text): Text | null {
+  let current: Node | null = node;
+
+  while (current) {
+    current = current.previousSibling;
+    if (current?.nodeType === Node.TEXT_NODE) {
+      return current as Text;
+    }
+
+    if (current instanceof HTMLElement) {
+      const walker = document.createTreeWalker(current, NodeFilter.SHOW_TEXT);
+      let last: Text | null = null;
+      let textNode: Text | null;
+      while ((textNode = walker.nextNode() as Text | null)) {
+        last = textNode;
+      }
+      if (last) {
+        return last;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getInsertionPoint(marker: { node: Text; offset: number }) {
+  const markerPrefix = marker.node.data.slice(0, marker.offset);
+  const visiblePrefix = markerPrefix.replaceAll("\u200B", "");
+
+  if (visiblePrefix.length > 0) {
+    return { node: marker.node, offset: marker.offset };
+  }
+
+  const previousText = getPreviousTextNode(marker.node);
+
+  if (previousText && previousText.length > 0) {
+    return { node: previousText, offset: previousText.length };
+  }
+
+  return {
+    node: marker.node,
+    offset: marker.offset + CARET_MARKER.length,
+  };
+}
+
+function escapeHtml(text: string) {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function wrapSelectionMarkup(text: string) {
+  if (!text) {
+    return text;
+  }
+
+  return `<span class="animated-markdown-selection">${escapeHtml(text)}</span>`;
+}
+
 function getInsertionCaretRect(marker: { node: Text; offset: number }) {
   const range = document.createRange();
-  const insertionOffset = marker.offset + CARET_MARKER.length;
+  const insertionPoint = getInsertionPoint(marker);
 
-  range.setStart(marker.node, insertionOffset);
+  range.setStart(insertionPoint.node, insertionPoint.offset);
   range.collapse(true);
   const probe = document.createElement("span");
   const parent = marker.node.parentNode;
@@ -405,23 +469,11 @@ const HIDDEN_STYLE: CSSProperties = {
   pointerEvents: "none",
 };
 
-// Extended Props Interface for Phase 2
-export interface AnimatedMarkdownPhase2Props {
-  /**
-   * Phase 2: Human Presence Layer
-   * Intensity of human-like behaviors: 'subtle' | 'normal' | 'expressive'
-   */
-  presenceIntensity?: PresenceIntensity;
-
-  /**
-   * Phase 2: Optional override for specific presence config values
-   */
-  presenceConfig?: Partial<PresenceConfig>;
-}
+export type { PresenceConfig, PresenceIntensity };
 
 export const AnimatedMarkdown = forwardRef<
   AnimatedMarkdownHandle,
-  AnimatedMarkdownProps & AnimatedMarkdownPhase2Props
+  AnimatedMarkdownProps
 >(function AnimatedMarkdown(
   {
     baseText,
@@ -442,12 +494,17 @@ export const AnimatedMarkdown = forwardRef<
   ref,
 ) {
   // Initialize Human Presence Hook
-  const { getDelay, getCursorHesitation, applyCursorJitter } = useHumanPresence(
-    {
-      intensity: presenceIntensity,
-      config: presenceConfig,
-    },
-  );
+  const {
+    getDelay,
+    getCursorHesitation,
+    applyCursorJitter,
+    expandPatches,
+    getSelectionPauseMs,
+    isThinkingEnabled,
+  } = useHumanPresence({
+    intensity: presenceIntensity,
+    config: presenceConfig,
+  });
 
   const {
     state,
@@ -467,13 +524,13 @@ export const AnimatedMarkdown = forwardRef<
     forceReducedMotion,
     animationConstants,
     onAnimationComplete,
-    // Pass human presence helpers to the engine if it supports them
-    // Note: You may need to update useAnimationEngine to accept these callbacks
-    // For now, we assume the engine will call these when calculating delays
     humanPresence: {
       getDelay,
       getCursorHesitation,
       applyCursorJitter,
+      expandPatches,
+      getSelectionPauseMs,
+      isThinkingEnabled,
     },
   });
 
@@ -484,15 +541,25 @@ export const AnimatedMarkdown = forwardRef<
     proseClassName,
   );
 
+  const activeDeleteDisplay =
+    state.phase === "selecting" && state.activeDeleteText
+      ? wrapSelectionMarkup(state.activeDeleteText)
+      : state.activeDeleteText;
+
   const composedText =
     state.mode === "split"
       ? state.beforeText +
         state.activeBeforeText +
         CARET_MARKER +
-        state.activeDeleteText +
+        activeDeleteDisplay +
         state.activeAfterText +
         state.afterText
       : "";
+
+  const highlightedSettledText = applyDiffHighlightsToText(
+    state.settledText,
+    state.diffHighlights,
+  );
 
   // Set initial text content on hidden spans imperatively so React
   // never manages their children (preventing re-render resets).
@@ -514,28 +581,24 @@ export const AnimatedMarkdown = forwardRef<
     activeAfterRef,
   ]);
 
-  // ── Caret overlay positioning ────────────────────────────────────
   useLayoutEffect(() => {
-    if (state.mode !== "split" || !state.caretVisible) return;
+    if (state.mode !== "split") return;
+    if (!state.caretVisible && state.phase !== "scrolling") return;
 
-    const frame = requestAnimationFrame(() => {
+    let frameId = 0;
+
+    const positionCaret = () => {
       const contentEl = containerRef.current?.querySelector<HTMLElement>(
         '[data-animated-markdown-content="true"]',
       );
-
       const caret = caretRef.current;
-
       if (!contentEl || !caret) return;
 
       const marker = findMarkerInDom(contentEl);
-
       if (!marker) return;
 
       const markerRect = getInsertionCaretRect(marker);
-
       const containerRect = contentEl.getBoundingClientRect();
-
-      // Apply cursor jitter if enabled in presence config
       const jitteredPos = applyCursorJitter(
         markerRect.left - containerRect.left,
         markerRect.top - containerRect.top,
@@ -544,15 +607,29 @@ export const AnimatedMarkdown = forwardRef<
       caret.style.left = `${jitteredPos.x}px`;
       caret.style.top = `${jitteredPos.y}px`;
       caret.style.height = `${markerRect.height}px`;
-    });
+    };
 
-    return () => cancelAnimationFrame(frame);
-  }, [composedText, state.mode, state.caretVisible, applyCursorJitter]);
+    frameId = requestAnimationFrame(positionCaret);
+    return () => cancelAnimationFrame(frameId);
+  }, [
+    composedText,
+    state.mode,
+    state.caretVisible,
+    state.phase,
+    applyCursorJitter,
+    caretRef,
+    containerRef,
+  ]);
 
-  // The text passed to MarkdownChunk: during split mode we include the
-  // zero-width marker so the layout effect can locate it for caret positioning.
-  const displayText = state.mode === "split" ? composedText : state.settledText;
+  const displayText =
+    state.mode === "split" ? composedText : highlightedSettledText;
   const useStreamingMarkdown = state.mode === "split";
+  const caretAnimation =
+    state.isThinking && state.caretVisible
+      ? "animated-markdown-caret-thinking 1200ms ease-in-out infinite"
+      : state.caretVisible
+        ? "animated-markdown-caret-blink 900ms steps(2, start) infinite"
+        : "none";
 
   return (
     <div
@@ -561,13 +638,13 @@ export const AnimatedMarkdown = forwardRef<
       className={joinClasses("animated-markdown-root", className)}
       data-operation={state.activeOperation ?? "idle"}
       data-phase={state.phase}
+      data-thinking={state.isThinking ? "true" : "false"}
       style={
         {
-          "--animated-markdown-caret-animation": state.caretVisible
-            ? "animated-markdown-caret-blink 900ms steps(2, start) infinite"
-            : "none",
+          "--animated-markdown-caret-animation": caretAnimation,
           "--animated-markdown-caret-color": state.caretColor,
-          "--animated-markdown-caret-opacity": state.caretVisible ? 1 : 0,
+          "--animated-markdown-caret-opacity":
+            state.caretVisible || state.phase === "scrolling" ? 1 : 0,
         } as CSSProperties
       }
     >
@@ -587,16 +664,17 @@ export const AnimatedMarkdown = forwardRef<
           <span
             ref={caretRef}
             aria-hidden="true"
-            className="animated-markdown-caret"
+            className={joinClasses(
+              "animated-markdown-caret",
+              state.isThinking ? "animated-markdown-caret-thinking" : undefined,
+            )}
             style={{ position: "absolute" }}
           />
         )}
       </div>
 
-      {/* Hidden region — animation engine manipulates these via DOM ops.
-          No React children so re-renders don't reset imperative mutations. */}
       {state.mode === "split" && (
-        <div aria-hidden="true" style={HIDDEN_STYLE}>
+        <div aria-label="Animated markdown patch region" style={HIDDEN_STYLE}>
           <span ref={activeBeforeRef} />
           <span ref={activeDeleteRef} />
           <span ref={activeAfterRef} />

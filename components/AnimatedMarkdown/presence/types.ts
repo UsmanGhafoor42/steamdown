@@ -1,55 +1,66 @@
 /**
- * Streamdown Phase 2: Human Presence Layer
- * Defines configuration and types for simulating human-like typing behavior.
+ * Streamdown Phase 2–3: Human Presence Layer
  */
 
-export type PresenceIntensity = "subtle" | "normal" | "expressive";
+export type PresenceIntensity =
+  | "subtle"
+  | "normal"
+  | "expressive"
+  | "minimal"
+  | "conversational";
 
 export interface PresenceConfig {
-  /** Overall intensity of human-like behaviors */
   intensity: PresenceIntensity;
-
-  /** Enable variable typing speed (slows for complex words) */
   variableSpeed: boolean;
-
-  /** Enable micro-pauses before punctuation and structural elements */
   contextualPauses: boolean;
-
-  /** Enable cursor hesitation and movement simulation */
   cursorHesitation: boolean;
-
-  /** Base typing speed in characters per second (cps) */
+  selectionSimulation: boolean;
+  rewritePatterns: boolean;
+  thinkingIndicator: boolean;
   baseSpeed: number;
-
-  /** Variance factor for speed (0.0 - 1.0) */
   speedVariance: number;
 }
 
-export const PRESET_CONFIGS: Record<PresenceIntensity, PresenceConfig> = {
+const CORE_PRESETS = {
   subtle: {
-    intensity: "subtle",
+    intensity: "subtle" as const,
     variableSpeed: true,
     contextualPauses: false,
     cursorHesitation: false,
+    selectionSimulation: false,
+    rewritePatterns: false,
+    thinkingIndicator: false,
     baseSpeed: 45,
     speedVariance: 0.1,
   },
   normal: {
-    intensity: "normal",
+    intensity: "normal" as const,
     variableSpeed: true,
     contextualPauses: true,
     cursorHesitation: true,
+    selectionSimulation: true,
+    rewritePatterns: true,
+    thinkingIndicator: true,
     baseSpeed: 35,
     speedVariance: 0.3,
   },
   expressive: {
-    intensity: "expressive",
+    intensity: "expressive" as const,
     variableSpeed: true,
     contextualPauses: true,
     cursorHesitation: true,
+    selectionSimulation: true,
+    rewritePatterns: true,
+    thinkingIndicator: true,
     baseSpeed: 25,
     speedVariance: 0.6,
   },
+} satisfies Record<"subtle" | "normal" | "expressive", PresenceConfig>;
+
+export const PRESET_CONFIGS: Record<PresenceIntensity, PresenceConfig> = {
+  ...CORE_PRESETS,
+  minimal: CORE_PRESETS.subtle,
+  conversational: CORE_PRESETS.normal,
 };
 
 export interface TypingContext {

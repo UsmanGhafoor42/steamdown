@@ -327,7 +327,7 @@ export const scenarios = [
   {
     id: "scenario-9",
     label: "Scenario 9",
-    name: "Version key reset",
+    name: "Stream interrupted (version reset)",
     versionKey: "v3",
     baseText: BASE_STRATEGY_DOC,
     patchSet: PATCH_SET_2,

@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { BatchQueue, PatchCoalescer, DEFAULT_BATCH_CONFIG } from "../batching";
+import {
+  BatchQueue,
+  PatchCoalescer,
+  DEFAULT_BATCH_CONFIG,
+} from "@/components/AnimatedMarkdown/batching";
 import type { Patch } from "../../components/AnimatedMarkdown/types";
 
 describe("BatchQueue", () => {

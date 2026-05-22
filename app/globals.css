@@ -67,9 +67,62 @@ button:disabled {
   background: var(--animated-markdown-caret-color, currentColor);
   animation: var(--animated-markdown-caret-animation, none);
   pointer-events: none;
-  transform: translateX(-50%);
+  transform: translateX(0);
   transition: opacity 300ms ease;
   will-change: left, top, height, opacity;
+}
+
+.animated-markdown-selection {
+  background: color-mix(in srgb, #3b82f6 22%, transparent);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.animated-markdown-diff-add {
+  background: color-mix(in srgb, #22c55e 28%, transparent);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  animation: animated-markdown-diff-fade 30s ease forwards;
+}
+
+.animated-markdown-diff-remove {
+  background: color-mix(in srgb, #ef4444 24%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, #ef4444 70%, transparent);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  animation: animated-markdown-diff-fade 30s ease forwards;
+}
+
+@keyframes animated-markdown-diff-fade {
+  0%,
+  85% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes animated-markdown-caret-thinking {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.45;
+    transform: scale(1.08);
+  }
+}
+
+.animated-markdown-caret-thinking {
+  animation: animated-markdown-caret-thinking 1200ms ease-in-out infinite;
 }
 
 @keyframes animated-markdown-caret-blink {
@@ -86,6 +139,11 @@ button:disabled {
 
 @media (prefers-reduced-motion: reduce) {
   .animated-markdown-caret {
+    animation: none;
+  }
+
+  .animated-markdown-diff-add,
+  .animated-markdown-diff-remove {
     animation: none;
   }
 }
