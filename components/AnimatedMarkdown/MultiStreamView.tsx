@@ -18,12 +18,17 @@ export type StreamSlot = {
 type MultiStreamViewProps = {
   streams: StreamSlot[];
   className?: string;
+  highVisibilityMode?: boolean;
 };
 
 /**
  * Phase 4: renders multiple independent AnimatedMarkdown streams side by side.
  */
-export function MultiStreamView({ streams, className }: MultiStreamViewProps) {
+export function MultiStreamView({
+  streams,
+  className,
+  highVisibilityMode = false,
+}: MultiStreamViewProps) {
   const refs = useRef<Record<string, AnimatedMarkdownHandle | null>>({});
 
   const playAll = async () => {
@@ -86,6 +91,7 @@ export function MultiStreamView({ streams, className }: MultiStreamViewProps) {
               proseClassName="prose-zinc prose-sm"
               presenceIntensity="normal"
               scrollMode="container"
+              highVisibilityMode={highVisibilityMode}
             />
           </article>
         ))}

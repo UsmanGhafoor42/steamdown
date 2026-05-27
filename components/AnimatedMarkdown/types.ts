@@ -71,6 +71,8 @@ export type AnimatedMarkdownProps = {
   presenceConfig?: Partial<PresenceConfig>;
   /** Dev overlay: cursor state, phase, scroll target */
   showDebugOverlay?: boolean;
+  /** Stronger diff/selection visuals for demos */
+  highVisibilityMode?: boolean;
 };
 
 export type AnimatedMarkdownHandle = {

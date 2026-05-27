@@ -332,6 +332,11 @@ function joinClasses(...classes: Array<string | undefined>) {
 
 /** Zero-width space used as an invisible caret position marker. */
 const CARET_MARKER = "\u200B\u200B";
+const STREAMDOWN_ALLOWED_TAGS: Record<string, string[]> = {
+  // Streamdown sanitize uses HAST property names (`className`) but we keep
+  // raw HTML names too (`class`, `data-diff-id`) for compatibility.
+  span: ["className", "class", "dataDiffId", "data-diff-id"],
+};
 
 const MarkdownChunk = memo(function MarkdownChunk({
   text,
@@ -352,6 +357,9 @@ const MarkdownChunk = memo(function MarkdownChunk({
       lineNumbers={false}
       mode={isStreaming ? "streaming" : "static"}
       parseIncompleteMarkdown={isStreaming}
+      skipHtml={false}
+      remarkRehypeOptions={{ allowDangerousHtml: true }}
+      allowedTags={STREAMDOWN_ALLOWED_TAGS}
     >
       {text}
     </Streamdown>
@@ -541,6 +549,7 @@ export const AnimatedMarkdown = forwardRef<
     presenceIntensity = "normal",
     presenceConfig,
     showDebugOverlay = false,
+    highVisibilityMode = false,
   },
   ref,
 ) {
@@ -704,7 +713,11 @@ export const AnimatedMarkdown = forwardRef<
     <div
       ref={containerRef}
       aria-busy={state.isAnimating}
-      className={joinClasses("animated-markdown-root", className)}
+      className={joinClasses(
+        "animated-markdown-root",
+        highVisibilityMode ? "animated-markdown-high-visibility" : undefined,
+        className,
+      )}
       data-operation={state.activeOperation ?? "idle"}
       data-phase={state.phase}
       data-cursor-state={state.cursorState}

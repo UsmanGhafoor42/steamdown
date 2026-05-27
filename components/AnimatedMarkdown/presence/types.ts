@@ -59,7 +59,12 @@ const CORE_PRESETS = {
 
 export const PRESET_CONFIGS: Record<PresenceIntensity, PresenceConfig> = {
   ...CORE_PRESETS,
-  minimal: CORE_PRESETS.subtle,
+  minimal: {
+    ...CORE_PRESETS.subtle,
+    intensity: "minimal",
+    // Keep selection visible even in the fastest profile.
+    selectionSimulation: true,
+  },
   conversational: CORE_PRESETS.normal,
 };
 

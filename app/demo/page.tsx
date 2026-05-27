@@ -151,6 +151,7 @@ export default function DemoPage() {
   const [presenceIntensity, setPresenceIntensity] =
     useState<PresenceIntensity>("normal");
   const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+  const [highVisibilityMode, setHighVisibilityMode] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<AnimationEvent | null>(null);
   const [displayedTextSnapshot, setDisplayedTextSnapshot] = useState(baseText);
@@ -466,6 +467,16 @@ export default function DemoPage() {
               />
             </label>
 
+            <label className="mt-3 flex items-center justify-between gap-3 text-sm font-medium text-zinc-700">
+              High visibility mode
+              <input
+                checked={highVisibilityMode}
+                className="h-5 w-5 accent-blue-600"
+                type="checkbox"
+                onChange={(event) => setHighVisibilityMode(event.target.checked)}
+              />
+            </label>
+
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label className="text-sm font-medium text-zinc-700">
                 Edit caret
@@ -597,11 +608,15 @@ export default function DemoPage() {
             forceReducedMotion={forceReducedMotion}
             presenceIntensity={presenceIntensity}
             showDebugOverlay={showDebugOverlay}
+            highVisibilityMode={highVisibilityMode}
             onAnimationComplete={setLastEvent}
           />
 
           <div className="mx-auto mt-10 max-w-5xl border-t border-zinc-200 pt-8">
-            <MultiStreamView streams={[...multiStreamSlots]} />
+            <MultiStreamView
+              streams={[...multiStreamSlots]}
+              highVisibilityMode={highVisibilityMode}
+            />
           </div>
         </section>
       </div>

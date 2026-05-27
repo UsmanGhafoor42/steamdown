@@ -1043,12 +1043,12 @@ export function useAnimationEngine({
 
       const selectionPause =
         findUnits.length > 0
-          ? (humanPresenceRef.current?.getSelectionPauseMs?.() ?? 0)
+          ? Math.max(220, humanPresenceRef.current?.getSelectionPauseMs?.() ?? 0)
           : 0;
 
       if (selectionPause > 0) {
         const selectionStepDelay = Math.max(
-          16,
+          30,
           selectionPause / Math.max(1, findUnits.length),
         );
         for (
@@ -1064,6 +1064,7 @@ export function useAnimationEngine({
           });
           await delay(selectionStepDelay);
         }
+        await delay(120);
         syncCursorState("selecting", false, patchLabel);
       }
 
