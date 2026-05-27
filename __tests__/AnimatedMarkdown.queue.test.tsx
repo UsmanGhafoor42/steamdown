@@ -584,7 +584,7 @@ describe("AnimatedMarkdown imperative queue", () => {
       ".animated-markdown-root",
     );
 
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 30; index += 1) {
       if (animatedRoot?.dataset.phase === "typing") {
         break;
       }

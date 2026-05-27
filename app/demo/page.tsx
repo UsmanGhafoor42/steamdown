@@ -6,9 +6,12 @@ import { MultiStreamView } from "@/components/AnimatedMarkdown/MultiStreamView";
 import {
   BASE_STRATEGY_DOC,
   BASE_STRATEGY_DOC_V2,
+  LONG_MARKDOWN_150KB,
   LONG_MARKDOWN_15KB,
+  LONG_MARKDOWN_50KB,
   PATCH_SET_3,
   performanceScenario,
+  performanceScenarios,
   scenarios,
   versions,
 } from "@/components/AnimatedMarkdown/fixtures";
@@ -75,7 +78,7 @@ declare global {
   interface Window {
     __animatedMarkdownDemo?: {
       runScenario: (scenarioId: string) => Promise<void>;
-      runPerformanceScenario: () => Promise<void>;
+      runPerformanceScenario: (scenarioId?: string) => Promise<void>;
       switchVersion: (versionKeyValue: string) => void;
       getMetrics: () => DemoMetrics;
     };
@@ -147,6 +150,7 @@ export default function DemoPage() {
   const [selectedScenarioId, setSelectedScenarioId] = useState("scenario-2");
   const [presenceIntensity, setPresenceIntensity] =
     useState<PresenceIntensity>("normal");
+  const [showDebugOverlay, setShowDebugOverlay] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<AnimationEvent | null>(null);
   const [displayedTextSnapshot, setDisplayedTextSnapshot] = useState(baseText);
@@ -176,79 +180,88 @@ export default function DemoPage() {
     );
   }, [baseText]);
 
-  const resetDocument = useCallback(async (text: string, key: string | number) => {
-    versionSequenceRef.current += 1;
-    setBaseText(text);
-    setVersionKey(`${key}:${versionSequenceRef.current}`);
-    await nextPaint();
-  }, []);
+  const resetDocument = useCallback(
+    async (text: string, key: string | number) => {
+      versionSequenceRef.current += 1;
+      setBaseText(text);
+      setVersionKey(`${key}:${versionSequenceRef.current}`);
+      await nextPaint();
+    },
+    [],
+  );
 
-  const runScenario = useCallback(async (scenarioId: string) => {
-    const scenario =
-      scenarios.find((item) => item.id === scenarioId) ??
-      (scenarioId === performanceScenario.id ? performanceScenario : null);
+  const runScenario = useCallback(
+    async (scenarioId: string) => {
+      const scenario =
+        scenarios.find((item) => item.id === scenarioId) ??
+        performanceScenarios.find((item) => item.id === scenarioId) ??
+        null;
 
-    if (!scenario) {
-      return;
-    }
-
-    setSelectedScenarioId(scenarioId);
-    setLastEvent(null);
-    setStatusMessage(null);
-
-    if (scenario.id === "scenario-5") {
-      setForceReducedMotion(true);
-    }
-
-    if (scenario.id !== "scenario-5") {
-      setForceReducedMotion(false);
-    }
-
-    await resetDocument(scenario.baseText, scenario.versionKey);
-
-    try {
-      if (scenario.id === "scenario-7") {
-        await markdownRef.current?.play(PATCH_SET_3);
-        await markdownRef.current?.restore(BASE_STRATEGY_DOC);
+      if (!scenario) {
         return;
       }
 
-      if (scenario.id === "scenario-8") {
-        const playPromise = markdownRef.current?.play(PATCH_SET_3);
+      setSelectedScenarioId(scenarioId);
+      setLastEvent(null);
+      setStatusMessage(null);
 
-        window.setTimeout(() => {
-          versionSequenceRef.current += 1;
-          setBaseText(BASE_STRATEGY_DOC_V2);
-          setVersionKey(`v2:${versionSequenceRef.current}`);
-        }, 500);
-
-        await playPromise;
-        return;
+      if (scenario.id === "scenario-5") {
+        setForceReducedMotion(true);
       }
 
-      if (scenario.id === "scenario-9") {
-        setStatusMessage("Simulation: Stream interrupted — version key reset");
-        const playPromise = markdownRef.current?.play(scenario.patchSet);
+      if (scenario.id !== "scenario-5") {
+        setForceReducedMotion(false);
+      }
 
-        window.setTimeout(() => {
-          versionSequenceRef.current += 1;
-          setVersionKey(`v4:${versionSequenceRef.current}`);
-        }, 500);
+      await resetDocument(scenario.baseText, scenario.versionKey);
 
-        try {
-          await playPromise;
-        } finally {
-          window.setTimeout(() => setStatusMessage(null), 4000);
+      try {
+        if (scenario.id === "scenario-7") {
+          await markdownRef.current?.play(PATCH_SET_3);
+          await markdownRef.current?.restore(BASE_STRATEGY_DOC);
+          return;
         }
 
-        return;
-      }
+        if (scenario.id === "scenario-8") {
+          const playPromise = markdownRef.current?.play(PATCH_SET_3);
 
-      await markdownRef.current?.play(scenario.patchSet);
-    } catch {
-      // Cancellation is expected in version-switch scenarios.
-    }
-  }, [resetDocument]);
+          window.setTimeout(() => {
+            versionSequenceRef.current += 1;
+            setBaseText(BASE_STRATEGY_DOC_V2);
+            setVersionKey(`v2:${versionSequenceRef.current}`);
+          }, 500);
+
+          await playPromise;
+          return;
+        }
+
+        if (scenario.id === "scenario-9") {
+          setStatusMessage(
+            "Simulation: Stream interrupted — version key reset",
+          );
+          const playPromise = markdownRef.current?.play(scenario.patchSet);
+
+          window.setTimeout(() => {
+            versionSequenceRef.current += 1;
+            setVersionKey(`v4:${versionSequenceRef.current}`);
+          }, 500);
+
+          try {
+            await playPromise;
+          } finally {
+            window.setTimeout(() => setStatusMessage(null), 4000);
+          }
+
+          return;
+        }
+
+        await markdownRef.current?.play(scenario.patchSet);
+      } catch {
+        // Cancellation is expected in version-switch scenarios.
+      }
+    },
+    [resetDocument],
+  );
 
   const restoreToBase = useCallback(async () => {
     try {
@@ -259,7 +272,9 @@ export default function DemoPage() {
   }, []);
 
   const switchVersion = useCallback((versionKeyValue: string) => {
-    const nextVersion = versions.find((version) => version.key === versionKeyValue);
+    const nextVersion = versions.find(
+      (version) => version.key === versionKeyValue,
+    );
 
     if (!nextVersion) {
       return;
@@ -294,8 +309,8 @@ export default function DemoPage() {
   useEffect(() => {
     window.__animatedMarkdownDemo = {
       runScenario: (scenarioId) => runScenarioRef.current(scenarioId),
-      runPerformanceScenario: () =>
-        runScenarioRef.current(performanceScenario.id),
+      runPerformanceScenario: (scenarioId = performanceScenario.id) =>
+        runScenarioRef.current(scenarioId),
       switchVersion: (versionKeyValue) =>
         switchVersionRef.current(versionKeyValue),
       getMetrics: () => {
@@ -353,7 +368,9 @@ export default function DemoPage() {
                   onClick={() => void runScenario(scenario.id)}
                 >
                   <span>
-                    <span className="block font-semibold">{scenario.label}</span>
+                    <span className="block font-semibold">
+                      {scenario.label}
+                    </span>
                     <span className="text-zinc-500">{scenario.name}</span>
                   </span>
                   <span className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-semibold text-white">
@@ -433,7 +450,19 @@ export default function DemoPage() {
                 checked={forceReducedMotion}
                 className="h-5 w-5 accent-blue-600"
                 type="checkbox"
-                onChange={(event) => setForceReducedMotion(event.target.checked)}
+                onChange={(event) =>
+                  setForceReducedMotion(event.target.checked)
+                }
+              />
+            </label>
+
+            <label className="mt-3 flex items-center justify-between gap-3 text-sm font-medium text-zinc-700">
+              Debug overlay
+              <input
+                checked={showDebugOverlay}
+                className="h-5 w-5 accent-blue-600"
+                type="checkbox"
+                onChange={(event) => setShowDebugOverlay(event.target.checked)}
               />
             </label>
 
@@ -495,21 +524,28 @@ export default function DemoPage() {
               <div>
                 <h2 className="text-sm font-semibold">Profiling</h2>
                 <p className="mt-1 text-sm text-zinc-500">
-                  Real 15 KB fixture for browser perf checks.
+                  Real 15/50/150 KB fixtures for browser perf checks.
                 </p>
               </div>
-              <div className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600">
-                {getTextKilobytes(LONG_MARKDOWN_15KB)} KB
+              <div className="grid grid-cols-3 gap-1 rounded-md border border-zinc-200 px-2 py-1 text-[11px] font-semibold text-zinc-600">
+                <span>{getTextKilobytes(LONG_MARKDOWN_15KB)} KB</span>
+                <span>{getTextKilobytes(LONG_MARKDOWN_50KB)} KB</span>
+                <span>{getTextKilobytes(LONG_MARKDOWN_150KB)} KB</span>
               </div>
             </div>
 
-            <button
-              className="mt-4 h-10 w-full rounded-md bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700"
-              type="button"
-              onClick={() => void runScenario(performanceScenario.id)}
-            >
-              Replay 15 KB stress
-            </button>
+            <div className="mt-4 grid gap-2">
+              {performanceScenarios.map((scenario) => (
+                <button
+                  className="h-10 w-full rounded-md bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700"
+                  key={scenario.id}
+                  type="button"
+                  onClick={() => void runScenario(scenario.id)}
+                >
+                  Replay {scenario.label}
+                </button>
+              ))}
+            </div>
           </section>
 
           <dl className="grid grid-cols-2 gap-3 rounded-md border border-zinc-200 bg-white p-4 text-sm shadow-sm">
@@ -531,7 +567,9 @@ export default function DemoPage() {
             </div>
             <div>
               <dt className="text-zinc-500">Chars</dt>
-              <dd className="mt-1 font-semibold">{displayedTextSnapshot.length}</dd>
+              <dd className="mt-1 font-semibold">
+                {displayedTextSnapshot.length}
+              </dd>
             </div>
           </dl>
         </aside>
@@ -558,6 +596,7 @@ export default function DemoPage() {
             speedMultiplier={speedMultiplier}
             forceReducedMotion={forceReducedMotion}
             presenceIntensity={presenceIntensity}
+            showDebugOverlay={showDebugOverlay}
             onAnimationComplete={setLastEvent}
           />
 

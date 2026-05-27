@@ -82,9 +82,10 @@ export function MultiStreamView({ streams, className }: MultiStreamViewProps) {
               }}
               baseText={stream.baseText}
               versionKey={stream.versionKey}
-              className="text-[15px] leading-7 text-zinc-900"
+              className="h-[420px] overflow-auto pr-2 text-[15px] leading-7 text-zinc-900"
               proseClassName="prose-zinc prose-sm"
               presenceIntensity="normal"
+              scrollMode="container"
             />
           </article>
         ))}

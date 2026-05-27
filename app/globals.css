@@ -73,7 +73,7 @@ button:disabled {
 }
 
 .animated-markdown-selection {
-  background: color-mix(in srgb, #3b82f6 22%, transparent);
+  background: color-mix(in srgb, #93c5fd 60%, transparent);
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -84,7 +84,6 @@ button:disabled {
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  animation: animated-markdown-diff-fade 30s ease forwards;
 }
 
 .animated-markdown-diff-remove {
@@ -94,12 +93,59 @@ button:disabled {
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  animation: animated-markdown-diff-fade 30s ease forwards;
+}
+
+.animated-markdown-diff-rewrite {
+  background: color-mix(in srgb, #eab308 30%, transparent);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.animated-markdown-diff-fadeout {
+  animation: animated-markdown-diff-fade 600ms ease forwards;
+}
+
+.animated-markdown-diff-live {
+  animation: none;
+  opacity: 1;
+}
+
+.animated-markdown-edit-context {
+  margin-bottom: 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid color-mix(in srgb, #3b82f6 35%, transparent);
+  background: color-mix(in srgb, #3b82f6 10%, transparent);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.animated-markdown-debug {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-radius: 0.375rem;
+  border: 1px solid #d4d4d8;
+  background: rgb(24 24 27 / 0.92);
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-mono-local);
+  font-size: 0.6875rem;
+  color: #fafafa;
+  pointer-events: none;
+}
+
+.animated-markdown-caret-selecting {
+  background: #3b82f6;
 }
 
 @keyframes animated-markdown-diff-fade {
-  0%,
-  85% {
+  0% {
     opacity: 1;
   }
 

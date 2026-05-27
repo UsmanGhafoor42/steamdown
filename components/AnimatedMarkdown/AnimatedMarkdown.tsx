@@ -320,7 +320,10 @@ import type {
   PresenceIntensity,
 } from "./types";
 import { useAnimationEngine } from "./useAnimation";
-import { applyDiffHighlightsToText } from "./diffHighlights";
+import {
+  applyDiffHighlightsToText,
+  wrapLiveDiffMarkup,
+} from "./diffHighlights";
 import { useHumanPresence } from "./presence/useHumanPresence";
 
 function joinClasses(...classes: Array<string | undefined>) {
@@ -433,6 +436,53 @@ function wrapSelectionMarkup(text: string) {
   return `<span class="animated-markdown-selection">${escapeHtml(text)}</span>`;
 }
 
+function canUseInlineMarkup(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.includes("\n")) {
+    return false;
+  }
+
+  // Avoid wrapping markdown block syntax with inline spans.
+  return !/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|~~~)/.test(trimmed);
+}
+
+function getActiveDeleteDisplay(
+  phase: string,
+  activeDeleteText: string,
+  liveDiffKind: "add" | "remove" | "rewrite" | null,
+  selectedDeleteCount: number,
+) {
+  if (!activeDeleteText) {
+    return activeDeleteText;
+  }
+
+  if (phase === "selecting") {
+    if (!canUseInlineMarkup(activeDeleteText)) {
+      return activeDeleteText;
+    }
+
+    const units = Array.from(activeDeleteText);
+    const count = Math.max(0, Math.min(selectedDeleteCount, units.length));
+    const unselectedText = escapeHtml(units.slice(0, units.length - count).join(""));
+    const selectedText = units.slice(units.length - count).join("");
+    if (!selectedText) {
+      return unselectedText;
+    }
+    return `${unselectedText}${wrapSelectionMarkup(selectedText)}`;
+  }
+
+  if (phase === "deleting") {
+    if (!canUseInlineMarkup(activeDeleteText)) {
+      return activeDeleteText;
+    }
+
+    const kind = liveDiffKind === "rewrite" ? "rewrite" : "remove";
+    return wrapLiveDiffMarkup(activeDeleteText, kind);
+  }
+
+  return activeDeleteText;
+}
+
 function getInsertionCaretRect(marker: { node: Text; offset: number }) {
   const range = document.createRange();
   const insertionPoint = getInsertionPoint(marker);
@@ -484,12 +534,13 @@ export const AnimatedMarkdown = forwardRef<
     proseClassName,
     typeSpeed = "normal",
     speedMultiplier = 1,
+    scrollMode = "window",
     forceReducedMotion = false,
     animationConstants,
     onAnimationComplete,
-    // Phase 2 Props
     presenceIntensity = "normal",
     presenceConfig,
+    showDebugOverlay = false,
   },
   ref,
 ) {
@@ -521,9 +572,11 @@ export const AnimatedMarkdown = forwardRef<
     restoreCaretColor,
     typeSpeed,
     speedMultiplier,
+    scrollMode,
     forceReducedMotion,
     animationConstants,
     onAnimationComplete,
+    showDebugOverlay,
     humanPresence: {
       getDelay,
       getCursorHesitation,
@@ -541,15 +594,24 @@ export const AnimatedMarkdown = forwardRef<
     proseClassName,
   );
 
-  const activeDeleteDisplay =
-    state.phase === "selecting" && state.activeDeleteText
-      ? wrapSelectionMarkup(state.activeDeleteText)
-      : state.activeDeleteText;
+  const activeDeleteDisplay = getActiveDeleteDisplay(
+    state.phase,
+    state.activeDeleteText,
+    state.liveDiffKind,
+    state.selectedDeleteCount,
+  );
+
+  const activeBeforeDisplay =
+    state.phase === "typing" &&
+    state.activeBeforeText &&
+    canUseInlineMarkup(state.activeBeforeText)
+      ? wrapLiveDiffMarkup(state.activeBeforeText, "add")
+      : state.activeBeforeText;
 
   const composedText =
     state.mode === "split"
       ? state.beforeText +
-        state.activeBeforeText +
+        activeBeforeDisplay +
         CARET_MARKER +
         activeDeleteDisplay +
         state.activeAfterText +
@@ -559,7 +621,13 @@ export const AnimatedMarkdown = forwardRef<
   const highlightedSettledText = applyDiffHighlightsToText(
     state.settledText,
     state.diffHighlights,
+    state.diffFadeOut,
   );
+
+  const showCaret =
+    state.caretVisible &&
+    state.cursorState !== "idle" &&
+    state.cursorState !== "completed";
 
   // Set initial text content on hidden spans imperatively so React
   // never manages their children (preventing re-render resets).
@@ -583,7 +651,7 @@ export const AnimatedMarkdown = forwardRef<
 
   useLayoutEffect(() => {
     if (state.mode !== "split") return;
-    if (!state.caretVisible && state.phase !== "scrolling") return;
+    if (!showCaret && state.phase !== "scrolling") return;
 
     let frameId = 0;
 
@@ -615,6 +683,7 @@ export const AnimatedMarkdown = forwardRef<
     composedText,
     state.mode,
     state.caretVisible,
+    state.cursorState,
     state.phase,
     applyCursorJitter,
     caretRef,
@@ -625,9 +694,9 @@ export const AnimatedMarkdown = forwardRef<
     state.mode === "split" ? composedText : highlightedSettledText;
   const useStreamingMarkdown = state.mode === "split";
   const caretAnimation =
-    state.isThinking && state.caretVisible
+    (state.isThinking || state.cursorState === "thinking") && showCaret
       ? "animated-markdown-caret-thinking 1200ms ease-in-out infinite"
-      : state.caretVisible
+      : showCaret
         ? "animated-markdown-caret-blink 900ms steps(2, start) infinite"
         : "none";
 
@@ -638,16 +707,36 @@ export const AnimatedMarkdown = forwardRef<
       className={joinClasses("animated-markdown-root", className)}
       data-operation={state.activeOperation ?? "idle"}
       data-phase={state.phase}
+      data-cursor-state={state.cursorState}
       data-thinking={state.isThinking ? "true" : "false"}
       style={
         {
           "--animated-markdown-caret-animation": caretAnimation,
           "--animated-markdown-caret-color": state.caretColor,
-          "--animated-markdown-caret-opacity":
-            state.caretVisible || state.phase === "scrolling" ? 1 : 0,
+          "--animated-markdown-caret-opacity": showCaret ? 1 : 0,
         } as CSSProperties
       }
     >
+      {state.editContextLabel ? (
+        <div
+          className="animated-markdown-edit-context"
+          role="status"
+          aria-live="polite"
+        >
+          {state.editContextLabel}
+        </div>
+      ) : null}
+
+      {state.debugInfo ? (
+        <div className="animated-markdown-debug" aria-hidden="true">
+          <span>cursor: {state.debugInfo.cursorState}</span>
+          <span>phase: {state.phase}</span>
+          {state.debugInfo.lastScrollTarget !== null ? (
+            <span>scroll: {Math.round(state.debugInfo.lastScrollTarget)}</span>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* Always rendered markdown — never raw text */}
       <div
         data-animated-markdown-content="true"
@@ -660,13 +749,17 @@ export const AnimatedMarkdown = forwardRef<
         />
 
         {/* Absolutely-positioned caret inside rendered content */}
-        {state.mode === "split" && (
+        {state.mode === "split" && showCaret && (
           <span
             ref={caretRef}
             aria-hidden="true"
             className={joinClasses(
               "animated-markdown-caret",
-              state.isThinking ? "animated-markdown-caret-thinking" : undefined,
+              state.cursorState === "thinking" || state.isThinking
+                ? "animated-markdown-caret-thinking"
+                : state.cursorState === "selecting"
+                  ? "animated-markdown-caret-selecting"
+                  : undefined,
             )}
             style={{ position: "absolute" }}
           />

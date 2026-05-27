@@ -1,4 +1,4 @@
-export type DiffHighlightKind = "add" | "remove";
+export type DiffHighlightKind = "add" | "remove" | "rewrite";
 
 export type DiffHighlight = {
   id: string;
@@ -41,6 +41,7 @@ export function pruneExpiredHighlights(
 export function applyDiffHighlightsToText(
   text: string,
   highlights: DiffHighlight[],
+  fadeOut: boolean = false,
 ): string {
   if (highlights.length === 0 || text === "") {
     return text;
@@ -56,8 +57,11 @@ export function applyDiffHighlightsToText(
     const className =
       highlight.kind === "add"
         ? "animated-markdown-diff-add"
-        : "animated-markdown-diff-remove";
-    const marker = `<span class="${className}" data-diff-id="${highlight.id}">`;
+        : highlight.kind === "rewrite"
+          ? "animated-markdown-diff-rewrite"
+          : "animated-markdown-diff-remove";
+    const fadeClass = fadeOut ? " animated-markdown-diff-fadeout" : "";
+    const marker = `<span class="${className}${fadeClass}" data-diff-id="${highlight.id}">`;
     let searchFrom = 0;
 
     while (searchFrom < result.length) {
@@ -71,10 +75,53 @@ export function applyDiffHighlightsToText(
       const after = result.slice(index + highlight.text.length);
 
       result = `${before}${marker}${highlight.text}</span>${after}`;
-      searchFrom = index + marker.length + highlight.text.length + "</span>".length;
+      searchFrom =
+        index + marker.length + highlight.text.length + "</span>".length;
       break;
     }
   }
 
   return result;
+}
+
+const LIVE_DIFF_CLASS: Record<"add" | "remove" | "rewrite", string> = {
+  add: "animated-markdown-diff-add",
+  remove: "animated-markdown-diff-remove",
+  rewrite: "animated-markdown-diff-rewrite",
+};
+
+/** Inline highlight for the active streaming region (not yet settled). */
+export function wrapLiveDiffMarkup(
+  text: string,
+  kind: "add" | "remove" | "rewrite",
+): string {
+  if (!text) {
+    return text;
+  }
+
+  const escaped = text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+  return `<span class="${LIVE_DIFF_CLASS[kind]} animated-markdown-diff-live">${escaped}</span>`;
+}
+
+export function classifyPatchDiff(
+  findText: string,
+  replaceText: string,
+): "add" | "remove" | "rewrite" {
+  if (!findText && replaceText) {
+    return "add";
+  }
+
+  if (findText && !replaceText) {
+    return "remove";
+  }
+
+  if (findText && replaceText && findText !== replaceText) {
+    return "rewrite";
+  }
+
+  return "add";
 }

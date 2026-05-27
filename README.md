@@ -40,14 +40,14 @@ the brief still works unchanged without them.
 
 ## Demo Harness
 
-`/demo` includes the nine contract scenarios plus a dedicated stress replay that
-loads a real `15.7 KB` fixture (`LONG_MARKDOWN_15KB`) for browser profiling.
+`/demo` includes the nine contract scenarios plus dedicated stress replays for
+`15 KB`, `50 KB`, and `150 KB` fixtures.
 
 The demo also exposes a non-UI helper at `window.__animatedMarkdownDemo` for the
 included profiling script. That helper can:
 
 - run any named scenario
-- run the 15 KB stress scenario
+- run any stress scenario (`15/50/150 KB`)
 - switch versions
 - report current FPS, document size, version key, and animation phase
 
@@ -159,21 +159,52 @@ For browser profiling, this repo now includes:
 
 ```bash
 npm run profile:demo
+# optional explicit set:
+# PROFILE_SIZES=15,50,150 npm run profile:demo
 ```
 
 The script builds the production app, starts a temporary `next start` server on
-a free local port, launches headless Chrome against `/demo`, runs the real
-`15.7 KB` stress replay, prints JSON, then shuts the temporary server down. Set
-`DEMO_URL=http://host:port/demo` to profile an already-running deployment
+a free local port, launches headless Chrome against `/demo`, runs each requested
+stress scenario, prints one JSON report, then shuts the temporary server down.
+Set `DEMO_URL=http://host:port/demo` to profile an already-running deployment
 instead.
 
-The JSON includes:
+The JSON includes, per scenario:
 
 - min / avg / max FPS samples from the live demo counter
 - document byte size and character count
 - heap before / after / delta
 - idle `TaskDuration` as a CPU proxy after animation completion
 - final phase / last-event state
+
+Example output shape:
+
+```json
+{
+  "url": "http://127.0.0.1:3000/demo",
+  "profiledSizes": ["15", "50", "150"],
+  "scenarios": [
+    {
+      "sizeKbTarget": 50,
+      "scenarioId": "scenario-stress-50kb",
+      "docKilobytes": 51.2,
+      "fps": { "avg": 57.1, "samples": 42 }
+    }
+  ]
+}
+```
+
+## Multi-Stream Isolation
+
+`MultiStreamView` now runs each stream in its own scroll container and sets
+`scrollMode="container"` on each `AnimatedMarkdown` instance. This prevents
+window-level scroll conflicts when multiple streams animate in parallel.
+
+## Heavy Patch Batching
+
+For high patch counts, the animation engine coalesces incoming patch runs
+through `BatchQueue` before playback. This reduces DOM churn spikes during large
+stream bursts while preserving patch order.
 
 Recommended profiling pass for reviewers:
 

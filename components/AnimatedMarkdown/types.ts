@@ -62,11 +62,15 @@ export type AnimatedMarkdownProps = {
   proseClassName?: string;
   typeSpeed?: TypeSpeed;
   speedMultiplier?: 0.5 | 1 | 2;
+  /** Where auto-scroll is applied during active edits. */
+  scrollMode?: "window" | "container";
   forceReducedMotion?: boolean;
   animationConstants?: Partial<AnimationConstants>;
   onAnimationComplete?: (event: AnimationEvent) => void;
   presenceIntensity?: PresenceIntensity;
   presenceConfig?: Partial<PresenceConfig>;
+  /** Dev overlay: cursor state, phase, scroll target */
+  showDebugOverlay?: boolean;
 };
 
 export type AnimatedMarkdownHandle = {

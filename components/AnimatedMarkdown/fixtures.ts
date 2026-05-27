@@ -140,6 +140,16 @@ export const LONG_MARKDOWN_15KB = Array.from(
   (_, index) => buildStressSection(index + 1),
 ).join("\n\n");
 
+export const LONG_MARKDOWN_50KB = Array.from(
+  { length: 52 },
+  (_, index) => buildStressSection(index + 1),
+).join("\n\n");
+
+export const LONG_MARKDOWN_150KB = Array.from(
+  { length: 155 },
+  (_, index) => buildStressSection(index + 1),
+).join("\n\n");
+
 export const PATCH_SET_1: PatchSet = {
   label: "Create plan",
   patches: [{ find: "", replace: SEED_MARKDOWN }],
@@ -217,6 +227,58 @@ export const PATCH_SET_15KB: PatchSet = {
   ],
 };
 
+export const PATCH_SET_50KB: PatchSet = {
+  label: "Stress 50 KB edit",
+  patches: [
+    {
+      find: "- Stop loss: -5% from entry [S14]",
+      replace: "- Stop loss: -3% from entry [S14]",
+    },
+    {
+      find: "- 25% of portfolio per entry [S26]",
+      replace: "- 12% of portfolio per entry [S26]",
+    },
+    {
+      find: "- Take profit: +15% from entry [S33]\n",
+      replace:
+        "- Take profit: +10% from entry [S33]\n- Exit on RSI(14) > 74 [S33]\n",
+    },
+    {
+      find: "## Risk Management\n- Daily loss limit: 2%",
+      replace:
+        "## Risk Management\n\n### Daily limits\n\n" +
+        "- Daily loss limit: 2%\n- Weekly drawdown cap: 4.5%",
+      before: `- Time stop: close after 10 trading days if neither hit [S40]\n`,
+    },
+  ],
+};
+
+export const PATCH_SET_150KB: PatchSet = {
+  label: "Stress 150 KB edit",
+  patches: [
+    {
+      find: "- Stop loss: -5% from entry [S48]",
+      replace: "- Stop loss: -2.5% from entry [S48]",
+    },
+    {
+      find: "- 25% of portfolio per entry [S77]",
+      replace: "- 10% of portfolio per entry [S77]",
+    },
+    {
+      find: "- Take profit: +15% from entry [S101]\n",
+      replace:
+        "- Take profit: +9% from entry [S101]\n- Exit on RSI(14) > 72 [S101]\n",
+    },
+    {
+      find: "## Risk Management\n- Daily loss limit: 2%",
+      replace:
+        "## Risk Management\n\n### Daily limits\n\n" +
+        "- Daily loss limit: 2%\n- Weekly drawdown cap: 4%",
+      before: `- Time stop: close after 10 trading days if neither hit [S120]\n`,
+    },
+  ],
+};
+
 export const versions = [
   {
     key: "empty",
@@ -248,6 +310,16 @@ export const versions = [
     label: "Stress 15 KB",
     text: LONG_MARKDOWN_15KB,
   },
+  {
+    key: "stress50k",
+    label: "Stress 50 KB",
+    text: LONG_MARKDOWN_50KB,
+  },
+  {
+    key: "stress150k",
+    label: "Stress 150 KB",
+    text: LONG_MARKDOWN_150KB,
+  },
 ] as const;
 
 export const performanceScenario = {
@@ -258,6 +330,26 @@ export const performanceScenario = {
   baseText: LONG_MARKDOWN_15KB,
   patchSet: PATCH_SET_15KB,
 } as const;
+
+export const performanceScenarios = [
+  performanceScenario,
+  {
+    id: "scenario-stress-50kb",
+    label: "Stress 50 KB",
+    name: "Browser perf",
+    versionKey: "stress50k",
+    baseText: LONG_MARKDOWN_50KB,
+    patchSet: PATCH_SET_50KB,
+  },
+  {
+    id: "scenario-stress-150kb",
+    label: "Stress 150 KB",
+    name: "Browser perf",
+    versionKey: "stress150k",
+    baseText: LONG_MARKDOWN_150KB,
+    patchSet: PATCH_SET_150KB,
+  },
+] as const;
 
 export const scenarios = [
   {

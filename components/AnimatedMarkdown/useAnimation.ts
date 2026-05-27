@@ -14,11 +14,21 @@ import {
 } from "./applyPatches";
 import { diffToPatches, expandPatchForAnimation } from "./diffToPatches";
 import {
+  classifyPatchDiff,
   createDiffHighlight,
   pruneExpiredHighlights,
   type DiffHighlight,
+  type DiffHighlightKind,
 } from "./diffHighlights";
+import { CursorStateMachine } from "./presence/CursorStateMachine";
+import type { CursorLifecycleState } from "./presence/CursorStateMachine";
 import type { TypingContext } from "./presence/types";
+import {
+  scrollWindowToFocalPoint,
+  waitForStableRect,
+  isRectInComfortZone,
+} from "./viewport";
+import { BatchQueue } from "./batching";
 import type {
   AnimatedMarkdownHandle,
   AnimationConstants,
@@ -62,16 +72,28 @@ type SplitSegments = {
   afterText: string;
 };
 
+export type AnimationDebugInfo = {
+  cursorState: CursorLifecycleState;
+  lastScrollTarget: number | null;
+  patchLabel: string | null;
+};
+
 export type AnimationState = SplitSegments & {
   settledText: string;
   caretColor: string;
   caretVisible: boolean;
   isAnimating: boolean;
   isThinking: boolean;
+  cursorState: CursorLifecycleState;
+  editContextLabel: string | null;
   mode: RenderMode;
   phase: AnimationPhase;
   activeOperation: OperationType | null;
   diffHighlights: DiffHighlight[];
+  diffFadeOut: boolean;
+  liveDiffKind: DiffHighlightKind | null;
+  selectedDeleteCount: number;
+  debugInfo: AnimationDebugInfo | null;
 };
 
 type HumanPresenceCallbacks = {
@@ -90,10 +112,12 @@ type UseAnimationOptions = {
   restoreCaretColor: string;
   typeSpeed: TypeSpeed;
   speedMultiplier: 0.5 | 1 | 2;
+  scrollMode: "window" | "container";
   forceReducedMotion: boolean;
   animationConstants?: Partial<AnimationConstants>;
   onAnimationComplete?: (event: AnimationEvent) => void;
   humanPresence?: HumanPresenceCallbacks;
+  showDebugOverlay?: boolean;
 };
 
 const EMPTY_SEGMENTS: SplitSegments = {
@@ -194,10 +218,16 @@ function getInitialState(baseText: string, caretColor: string): AnimationState {
     caretVisible: false,
     isAnimating: false,
     isThinking: false,
+    cursorState: "idle",
+    editContextLabel: null,
     mode: "markdown",
     phase: "idle",
     activeOperation: null,
     diffHighlights: [],
+    diffFadeOut: false,
+    liveDiffKind: null,
+    selectedDeleteCount: 0,
+    debugInfo: null,
   };
 }
 
@@ -304,6 +334,39 @@ function warnMissingPatch(operation: QueuedOperation, patch: Patch) {
   });
 }
 
+function collectHighlightFragments(text: string): string[] {
+  const fragments: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      continue;
+    }
+
+    if (line.startsWith("```")) {
+      continue;
+    }
+
+    // Strip common markdown structural prefixes so we only wrap visible content.
+    const candidate = line
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^\d+\.\s+/, "")
+      .trim();
+
+    if (candidate.length < 2 || seen.has(candidate)) {
+      continue;
+    }
+
+    seen.add(candidate);
+    fragments.push(candidate);
+  }
+
+  return fragments;
+}
+
 export function useAnimationEngine({
   baseText,
   versionKey,
@@ -311,10 +374,12 @@ export function useAnimationEngine({
   restoreCaretColor,
   typeSpeed,
   speedMultiplier,
+  scrollMode,
   forceReducedMotion,
   animationConstants,
   onAnimationComplete,
   humanPresence,
+  showDebugOverlay = false,
 }: UseAnimationOptions) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const constants = useMemo(
@@ -344,7 +409,11 @@ export function useAnimationEngine({
   const onAnimationCompleteRef = useRef(onAnimationComplete);
   const humanPresenceRef = useRef(humanPresence);
   const diffHighlightsRef = useRef<DiffHighlight[]>([]);
-  const highlightTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const diffFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const diffCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cursorMachineRef = useRef(new CursorStateMachine());
+  const lastScrollTargetRef = useRef<number | null>(null);
+  const showDebugOverlayRef = useRef(showDebugOverlay);
 
   useEffect(() => {
     onAnimationCompleteRef.current = onAnimationComplete;
@@ -353,6 +422,10 @@ export function useAnimationEngine({
   useEffect(() => {
     humanPresenceRef.current = humanPresence;
   }, [humanPresence]);
+
+  useEffect(() => {
+    showDebugOverlayRef.current = showDebugOverlay;
+  }, [showDebugOverlay]);
 
   useEffect(() => {
     caretColorRef.current = caretColor;
@@ -395,38 +468,68 @@ export function useAnimationEngine({
     }));
   }, []);
 
-  const syncDiffHighlights = useCallback(() => {
-    const pruned = pruneExpiredHighlights(diffHighlightsRef.current);
-    diffHighlightsRef.current = pruned;
-    updateState({ diffHighlights: pruned });
-  }, [updateState]);
+  const clearDiffLifecycleTimers = useCallback(() => {
+    if (diffFadeTimerRef.current) {
+      clearTimeout(diffFadeTimerRef.current);
+      diffFadeTimerRef.current = null;
+    }
+    if (diffCleanupTimerRef.current) {
+      clearTimeout(diffCleanupTimerRef.current);
+      diffCleanupTimerRef.current = null;
+    }
+  }, []);
 
   const addDiffHighlight = useCallback(
-    (kind: "add" | "remove", text: string) => {
+    (kind: DiffHighlightKind, text: string) => {
       if (!text) {
         return;
       }
 
+      const fragments = collectHighlightFragments(text);
+      if (fragments.length === 0) {
+        return;
+      }
+
+      clearDiffLifecycleTimers();
       diffHighlightsRef.current = [
         ...pruneExpiredHighlights(diffHighlightsRef.current),
-        createDiffHighlight(kind, text),
+        ...fragments.map((fragment) => createDiffHighlight(kind, fragment)),
       ];
-      syncDiffHighlights();
+      updateState({
+        diffHighlights: diffHighlightsRef.current,
+        diffFadeOut: false,
+      });
     },
-    [syncDiffHighlights],
+    [clearDiffLifecycleTimers, updateState],
   );
 
-  useEffect(() => {
-    highlightTimerRef.current = setInterval(() => {
-      syncDiffHighlights();
-    }, 1000);
+  const syncCursorState = useCallback(
+    (
+      phase: AnimationPhase,
+      isThinking: boolean,
+      patchLabel: string | null = null,
+    ) => {
+      const mapped = cursorMachineRef.current.mapPhaseToState(phase, isThinking);
+      cursorMachineRef.current.transition(mapped);
 
-    return () => {
-      if (highlightTimerRef.current) {
-        clearInterval(highlightTimerRef.current);
+      if (phase === "settled" || phase === "idle") {
+        cursorMachineRef.current.complete();
+        cursorMachineRef.current.reset();
       }
-    };
-  }, [syncDiffHighlights]);
+
+      const cursorState = cursorMachineRef.current.getState();
+      const debugInfo = showDebugOverlayRef.current
+        ? {
+            cursorState,
+            lastScrollTarget: lastScrollTargetRef.current,
+            patchLabel,
+          }
+        : null;
+
+      updateState({ cursorState, debugInfo });
+    },
+    [updateState],
+  );
 
   const setMarkdownText = useCallback(
     (nextText: string, nextState: Partial<AnimationState> = {}) => {
@@ -616,12 +719,36 @@ export function useAnimationEngine({
     (operation: RunningOperation, finalText: string, cancelled: boolean) => {
       currentOperationRef.current = null;
       clearScheduledWork();
+      cursorMachineRef.current.complete();
+      cursorMachineRef.current.reset();
       setMarkdownText(finalText, {
         caretVisible: false,
         isAnimating: false,
+        isThinking: false,
         phase: "settled",
+        cursorState: "idle",
         activeOperation: null,
+        editContextLabel: null,
+        selectedDeleteCount: 0,
+        liveDiffKind: null,
+        debugInfo: null,
       });
+
+      if (diffHighlightsRef.current.length > 0) {
+        clearDiffLifecycleTimers();
+        diffFadeTimerRef.current = setTimeout(() => {
+          updateState({ diffFadeOut: true });
+          diffFadeTimerRef.current = null;
+        }, 3000);
+        diffCleanupTimerRef.current = setTimeout(() => {
+          diffHighlightsRef.current = [];
+          updateState({
+            diffHighlights: [],
+            diffFadeOut: false,
+          });
+          diffCleanupTimerRef.current = null;
+        }, 3600);
+      }
 
       if (cancelled) {
         rejectOperation(operation, "Animation cancelled");
@@ -629,7 +756,14 @@ export function useAnimationEngine({
         resolveOperation(operation);
       }
     },
-    [clearScheduledWork, rejectOperation, resolveOperation, setMarkdownText],
+    [
+      clearDiffLifecycleTimers,
+      clearScheduledWork,
+      rejectOperation,
+      resolveOperation,
+      setMarkdownText,
+      updateState,
+    ],
   );
 
   const isOperationCurrent = useCallback((operation: RunningOperation) => {
@@ -638,9 +772,8 @@ export function useAnimationEngine({
 
   const measureAndScrollToCaret = useCallback(
     async (operation: RunningOperation) => {
+      syncCursorState("scrolling", false);
       updateState({ phase: "scrolling" });
-      await nextFrame();
-      await nextFrame();
 
       if (!isOperationCurrent(operation) || shouldReduceMotion()) {
         return false;
@@ -652,42 +785,75 @@ export function useAnimationEngine({
         return false;
       }
 
-      const rect = caret.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const comfortTop = viewportHeight * 0.2;
-      const comfortBottom = viewportHeight * 0.8;
+      const measureCaret = () => {
+        const el = caretRef.current;
+        return el ? el.getBoundingClientRect() : null;
+      };
 
-      if (rect.top >= comfortTop && rect.bottom <= comfortBottom) {
+      const skipStableWait = constants.scrollMaxMs <= 10;
+
+      const stableRect = skipStableWait
+        ? measureCaret()
+        : await waitForStableRect(measureCaret);
+
+      if (!stableRect || !isOperationCurrent(operation)) {
+        return false;
+      }
+
+      const container = containerRef.current;
+      const isContainerScroll = scrollMode === "container" && container;
+      const viewportHeight = isContainerScroll
+        ? container.clientHeight
+        : window.innerHeight;
+
+      const zoneRect = isContainerScroll
+        ? ({
+            ...stableRect,
+            top: stableRect.top - container.getBoundingClientRect().top,
+            bottom: stableRect.bottom - container.getBoundingClientRect().top,
+          } as DOMRect)
+        : stableRect;
+
+      if (isRectInComfortZone(zoneRect, viewportHeight)) {
         return false;
       }
 
       scrollInFlightRef.current = true;
-      const targetTop = window.scrollY + rect.top - viewportHeight * 0.5;
-      const distance = targetTop - window.scrollY;
-      const behavior: ScrollBehavior = shouldReduceMotion() ? "auto" : "smooth";
+      const targetTop = isContainerScroll
+        ? container.scrollTop +
+          (stableRect.top - container.getBoundingClientRect().top) -
+          viewportHeight * 0.5
+        : window.scrollY + stableRect.top - viewportHeight * 0.5;
+      lastScrollTargetRef.current = targetTop;
 
-      if (Math.abs(distance) > viewportHeight) {
-        window.scrollTo({
-          top: window.scrollY + distance / 2,
-          behavior,
+      let didScroll = false;
+
+      if (isContainerScroll) {
+        container.scrollTo({
+          top: targetTop,
+          behavior: shouldReduceMotion() ? "auto" : "smooth",
         });
-        await delay(constants.scrollMaxMs / 2);
+        await delay(constants.scrollMaxMs);
+        didScroll = true;
+      } else {
+        didScroll = await scrollWindowToFocalPoint(stableRect, {
+          viewportHeight,
+          focalRatio: 0.5,
+          maxDurationMs: constants.scrollMaxMs,
+          behavior: shouldReduceMotion() ? "auto" : "smooth",
+        });
       }
 
-      window.scrollTo({
-        top: targetTop,
-        behavior,
-      });
-      await delay(constants.scrollMaxMs);
       scrollInFlightRef.current = false;
-      return true;
+      return didScroll;
     },
     [
       constants.scrollMaxMs,
       delay,
       isOperationCurrent,
-      nextFrame,
+      scrollMode,
       shouldReduceMotion,
+      syncCursorState,
       updateState,
     ],
   );
@@ -754,6 +920,28 @@ export function useAnimationEngine({
     [getBaseTypeDelay, speedScale],
   );
 
+  const coalesceHeavyPatches = useCallback(async (patches: Patch[]) => {
+    if (patches.length < 8) {
+      return patches;
+    }
+
+    const queue = new BatchQueue({
+      timeWindowMs: 8,
+      maxBatchSize: Math.max(20, patches.length),
+      minPatchesForImmediate: 1,
+      enableAdaptiveSizing: true,
+    });
+    let coalesced: Patch[] = patches;
+
+    queue.setProcessor(async (nextPatches) => {
+      coalesced = nextPatches;
+    });
+
+    await queue.enqueueAll(patches, 0);
+    queue.clear();
+    return coalesced;
+  }, []);
+
   const animatePatch = useCallback(
     async (
       operation: RunningOperation,
@@ -777,6 +965,8 @@ export function useAnimationEngine({
       const findText = currentDocument.slice(range.start, range.end);
       const findUnits = splitGraphemes(findText);
       const replaceUnits = splitGraphemes(patch.replace);
+      const liveDiffKind = classifyPatchDiff(findText, patch.replace);
+      const patchLabel = operation.patchSet?.label ?? null;
       const segments: SplitSegments = {
         beforeText: currentDocument.slice(0, region.start),
         activeBeforeText: regionPrefix,
@@ -784,6 +974,34 @@ export function useAnimationEngine({
         activeAfterText: regionSuffix,
         afterText: currentDocument.slice(region.end),
       };
+
+      const thinkingEnabled =
+        humanPresenceRef.current?.isThinkingEnabled?.() ?? false;
+
+      // Predictive pause BEFORE the visible edit region mounts (feels intentional).
+      const usePredictivePause =
+        constants.preEditPauseMs > 0 || constants.caretFadeMs > 0;
+
+      if (usePredictivePause && (thinkingEnabled || isFirstPatch)) {
+        cursorMachineRef.current.transition("thinking");
+        updateState({
+          phase: "pausing",
+          isThinking: thinkingEnabled,
+          cursorState: "thinking",
+          editContextLabel: patchLabel,
+          caretVisible: false,
+          isAnimating: true,
+          liveDiffKind: null,
+        });
+        if (isFirstPatch) {
+          await delay(constants.caretFadeMs);
+        }
+        await delay(constants.preEditPauseMs);
+      }
+
+      if (!isOperationCurrent(operation)) {
+        return;
+      }
 
       setSplitSegments(segments, {
         activeOperation: operation.type,
@@ -794,7 +1012,12 @@ export function useAnimationEngine({
         caretVisible: true,
         isAnimating: true,
         phase: "scrolling",
+        isThinking: false,
+        editContextLabel: patchLabel,
+        liveDiffKind,
+        selectedDeleteCount: 0,
       });
+      syncCursorState("scrolling", false, patchLabel);
 
       await nextFrame();
       await nextFrame();
@@ -805,20 +1028,14 @@ export function useAnimationEngine({
         return;
       }
 
-      const thinkingEnabled =
-        humanPresenceRef.current?.isThinkingEnabled?.() ?? false;
-
       setSplitSegments(readDomSegments(), {
         caretVisible: true,
         phase: "pausing",
-        isThinking: thinkingEnabled,
+        isThinking: false,
+        liveDiffKind,
+        selectedDeleteCount: 0,
       });
-
-      if (isFirstPatch) {
-        await delay(constants.caretFadeMs);
-      }
-
-      await delay(constants.preEditPauseMs);
+      syncCursorState("pausing", false, patchLabel);
 
       if (!isOperationCurrent(operation)) {
         return;
@@ -830,11 +1047,24 @@ export function useAnimationEngine({
           : 0;
 
       if (selectionPause > 0) {
-        setSplitSegments(readDomSegments(), {
-          phase: "selecting",
-          isThinking: false,
-        });
-        await delay(selectionPause);
+        const selectionStepDelay = Math.max(
+          16,
+          selectionPause / Math.max(1, findUnits.length),
+        );
+        for (
+          let selectedCount = 1;
+          selectedCount <= findUnits.length && isOperationCurrent(operation);
+          selectedCount += 1
+        ) {
+          setSplitSegments(readDomSegments(), {
+            phase: "selecting",
+            isThinking: false,
+            liveDiffKind,
+            selectedDeleteCount: selectedCount,
+          });
+          await delay(selectionStepDelay);
+        }
+        syncCursorState("selecting", false, patchLabel);
       }
 
       if (!isOperationCurrent(operation)) {
@@ -844,23 +1074,22 @@ export function useAnimationEngine({
       setSplitSegments(readDomSegments(), {
         phase: "deleting",
         isThinking: false,
+        liveDiffKind,
+        selectedDeleteCount: findUnits.length,
       });
+      syncCursorState("deleting", false, patchLabel);
 
       const deleteDelay = getDeleteDelay(findUnits.length);
-
-      for (
-        let deletedCount = 0;
-        deletedCount < findUnits.length && isOperationCurrent(operation);
-        deletedCount += 1
-      ) {
+      if (findUnits.length > 0) {
         await delay(deleteDelay);
         await nextFrame();
-        deleteLastCharacter(
-          activeDeleteRef,
-          findUnits[findUnits.length - 1 - deletedCount].length,
-        );
+        if (activeDeleteRef.current) {
+          activeDeleteRef.current.textContent = "";
+        }
         setSplitSegments(readDomSegments(), {
           phase: "deleting",
+          liveDiffKind,
+          selectedDeleteCount: 0,
         });
       }
 
@@ -873,7 +1102,10 @@ export function useAnimationEngine({
       setSplitSegments(readDomSegments(), {
         phase: "typing",
         isThinking: false,
+        liveDiffKind: "add",
+        selectedDeleteCount: 0,
       });
+      syncCursorState("typing", false, patchLabel);
 
       const surroundingText =
         segments.beforeText + regionPrefix + patch.replace + regionSuffix;
@@ -895,6 +1127,8 @@ export function useAnimationEngine({
         appendCharacter(activeBeforeRef, replaceUnits[typedCount]);
         setSplitSegments(readDomSegments(), {
           phase: "typing",
+          liveDiffKind: "add",
+          selectedDeleteCount: 0,
         });
       }
 
@@ -905,13 +1139,28 @@ export function useAnimationEngine({
         regionSuffix +
         segments.afterText;
 
-      if (findText) {
-        addDiffHighlight("remove", findText);
+      const settledKind = classifyPatchDiff(findText, patch.replace);
+      if (settledKind === "rewrite") {
+        addDiffHighlight("rewrite", findText);
+        if (patch.replace && patch.replace !== findText) {
+          addDiffHighlight("add", patch.replace);
+        }
+      } else {
+        if (findText) {
+          addDiffHighlight("remove", findText);
+        }
+        if (patch.replace) {
+          addDiffHighlight("add", patch.replace);
+        }
       }
 
-      if (patch.replace) {
-        addDiffHighlight("add", patch.replace);
-      }
+      cursorMachineRef.current.transition("resolving");
+      updateState({
+        liveDiffKind: null,
+        editContextLabel: null,
+        selectedDeleteCount: 0,
+        cursorState: "resolving",
+      });
 
       if (!isOperationCurrent(operation) || isLastPatch) {
         return;
@@ -938,6 +1187,8 @@ export function useAnimationEngine({
       nextFrame,
       readDomSegments,
       setSplitSegments,
+      syncCursorState,
+      updateState,
     ],
   );
 
@@ -948,6 +1199,12 @@ export function useAnimationEngine({
       if (shouldReduceMotion() || operation.patches.length === 0) {
         finishRunningOperation(operation, operation.finalText, false);
         startNextOperationRef.current();
+        return;
+      }
+
+      const patchesToRun = await coalesceHeavyPatches(operation.patches);
+
+      if (!isOperationCurrent(operation)) {
         return;
       }
 
@@ -962,16 +1219,16 @@ export function useAnimationEngine({
         phase: "idle",
       });
 
-      for (let index = 0; index < operation.patches.length; index += 1) {
+      for (let index = 0; index < patchesToRun.length; index += 1) {
         if (!isOperationCurrent(operation)) {
           return;
         }
 
         await animatePatch(
           operation,
-          operation.patches[index],
+          patchesToRun[index],
           index === 0,
-          index === operation.patches.length - 1,
+          index === patchesToRun.length - 1,
         );
       }
 
@@ -982,6 +1239,7 @@ export function useAnimationEngine({
       setSplitSegments(readDomSegments(), {
         caretVisible: false,
         phase: "settled",
+        selectedDeleteCount: 0,
       });
       await delay(constants.caretFadeMs);
 
@@ -994,6 +1252,7 @@ export function useAnimationEngine({
     },
     [
       animatePatch,
+      coalesceHeavyPatches,
       constants.caretFadeMs,
       delay,
       finishRunningOperation,
@@ -1107,6 +1366,7 @@ export function useAnimationEngine({
     const queued = queueRef.current.splice(0);
 
     clearScheduledWork();
+    clearDiffLifecycleTimers();
 
     if (current) {
       currentOperationRef.current = null;
@@ -1121,11 +1381,18 @@ export function useAnimationEngine({
     modeRef.current = "markdown";
     segmentsRef.current = EMPTY_SEGMENTS;
     setState(getInitialState(baseText, caretColorRef.current));
-  }, [baseText, clearScheduledWork, rejectOperation, versionKey]);
+  }, [
+    baseText,
+    clearDiffLifecycleTimers,
+    clearScheduledWork,
+    rejectOperation,
+    versionKey,
+  ]);
 
   useEffect(() => {
     return () => {
       clearScheduledWork();
+      clearDiffLifecycleTimers();
       const current = currentOperationRef.current;
       // Cleanup intentionally observes the latest queue ref.
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1139,7 +1406,7 @@ export function useAnimationEngine({
         rejectOperation(operation, "Component unmounted");
       }
     };
-  }, [clearScheduledWork, rejectOperation]);
+  }, [clearDiffLifecycleTimers, clearScheduledWork, rejectOperation]);
 
   return {
     state,

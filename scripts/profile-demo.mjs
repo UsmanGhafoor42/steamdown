@@ -15,6 +15,28 @@ const POLL_INTERVAL_MS = 250;
 const IDLE_SAMPLE_MS = 2000;
 const API_TIMEOUT_MS = 20000;
 const PROFILE_TIMEOUT_MS = 60000;
+const PROFILE_SIZES = (process.env.PROFILE_SIZES ?? "15,50,150")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+const SCENARIO_BY_SIZE = {
+  "15": {
+    id: "scenario-stress-15kb",
+    versionKey: "stress15k",
+    minKb: 15,
+  },
+  "50": {
+    id: "scenario-stress-50kb",
+    versionKey: "stress50k",
+    minKb: 50,
+  },
+  "150": {
+    id: "scenario-stress-150kb",
+    versionKey: "stress150k",
+    minKb: 150,
+  },
+};
 
 function metricMap(metrics) {
   return new Map(metrics.map((metric) => [metric.name, metric.value]));
@@ -246,7 +268,7 @@ async function waitForDemoApi(client, browserMessages) {
   );
 }
 
-async function waitForStressFixture(client) {
+async function waitForStressFixture(client, minKb) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < 10000) {
@@ -257,7 +279,7 @@ async function waitForStressFixture(client) {
 
     if (
       metrics &&
-      metrics.currentDocKilobytes >= 15 &&
+      metrics.currentDocKilobytes >= minKb &&
       ["idle", "settled"].includes(metrics.activePhase)
     ) {
       return metrics;
@@ -266,7 +288,7 @@ async function waitForStressFixture(client) {
     await delay(100);
   }
 
-  throw new Error("Timed out waiting for the 15 KB stress fixture to settle.");
+  throw new Error(`Timed out waiting for the ${minKb} KB stress fixture to settle.`);
 }
 
 async function startDemoServer() {
@@ -364,165 +386,191 @@ async function main() {
     await client.send("Page.navigate", { url: targetUrl });
     await loadEvent;
     await waitForDemoApi(client, browserMessages);
-    await evaluate(
-      client,
-      `(() => {
-        window.__animatedMarkdownDemo.switchVersion("stress15k");
-        return "switched";
-      })()`,
-    );
-    await waitForStressFixture(client);
+    const scenarios = PROFILE_SIZES.map((size) => {
+      const scenario = SCENARIO_BY_SIZE[size];
+      if (!scenario) {
+        throw new Error(
+          `Unsupported PROFILE_SIZES entry "${size}". Use 15,50,150.`,
+        );
+      }
+      return { size, ...scenario };
+    });
 
-    await client.send("HeapProfiler.collectGarbage");
+    const results = [];
 
-    const heapBefore = await evaluate(
-      client,
-      "performance.memory ? performance.memory.usedJSHeapSize : 0",
-    );
-
-    const firstMetrics = await evaluate(
-      client,
-      `(() => {
-        const api = window.__animatedMarkdownDemo;
-
-        if (!api?.runPerformanceScenario || !api?.getMetrics) {
-          throw new Error("AnimatedMarkdown demo profiling API is unavailable.");
-        }
-
-        window.__animatedMarkdownProfile = { done: false, error: null };
-        api.runPerformanceScenario()
-          .then(() => {
-            window.__animatedMarkdownProfile.done = true;
-          })
-          .catch((error) => {
-            window.__animatedMarkdownProfile.done = true;
-            window.__animatedMarkdownProfile.error =
-              error?.stack ?? error?.message ?? String(error);
-          });
-
-        return api.getMetrics();
-      })()`,
-    );
-
-    const fpsSamples = [];
-    let sawActiveAnimation = false;
-    let finalMetrics = firstMetrics;
-    const profileStartedAt = Date.now();
-
-    while (Date.now() - profileStartedAt < PROFILE_TIMEOUT_MS) {
-      const sample = await evaluate(
+    for (const scenario of scenarios) {
+      await evaluate(
         client,
-        `(() => ({
-          done: Boolean(window.__animatedMarkdownProfile?.done),
-          error: window.__animatedMarkdownProfile?.error ?? null,
-          metrics: window.__animatedMarkdownDemo?.getMetrics?.() ?? null
-        }))()`,
+        `(() => {
+          window.__animatedMarkdownDemo.switchVersion("${scenario.versionKey}");
+          return "switched";
+        })()`,
+      );
+      await waitForStressFixture(client, scenario.minKb);
+
+      await client.send("HeapProfiler.collectGarbage");
+
+      const heapBefore = await evaluate(
+        client,
+        "performance.memory ? performance.memory.usedJSHeapSize : 0",
       );
 
-      if (sample.error) {
-        throw new Error(sample.error);
-      }
+      const firstMetrics = await evaluate(
+        client,
+        `(() => {
+          const api = window.__animatedMarkdownDemo;
 
-      if (sample.metrics) {
-        finalMetrics = sample.metrics;
+          if (!api?.runPerformanceScenario || !api?.getMetrics) {
+            throw new Error("AnimatedMarkdown demo profiling API is unavailable.");
+          }
 
-        if (
-          sample.metrics.activePhase &&
-          !["idle", "settled"].includes(sample.metrics.activePhase)
-        ) {
-          sawActiveAnimation = true;
+          window.__animatedMarkdownProfile = { done: false, error: null };
+          api.runPerformanceScenario("${scenario.id}")
+            .then(() => {
+              window.__animatedMarkdownProfile.done = true;
+            })
+            .catch((error) => {
+              window.__animatedMarkdownProfile.done = true;
+              window.__animatedMarkdownProfile.error =
+                error?.stack ?? error?.message ?? String(error);
+            });
 
-          if (Number.isFinite(sample.metrics.fps) && sample.metrics.fps > 0) {
-            fpsSamples.push(sample.metrics.fps);
+          return api.getMetrics();
+        })()`,
+      );
+
+      const fpsSamples = [];
+      let sawActiveAnimation = false;
+      let finalMetrics = firstMetrics;
+      const profileStartedAt = Date.now();
+
+      while (Date.now() - profileStartedAt < PROFILE_TIMEOUT_MS) {
+        const sample = await evaluate(
+          client,
+          `(() => ({
+            done: Boolean(window.__animatedMarkdownProfile?.done),
+            error: window.__animatedMarkdownProfile?.error ?? null,
+            metrics: window.__animatedMarkdownDemo?.getMetrics?.() ?? null
+          }))()`,
+        );
+
+        if (sample.error) {
+          throw new Error(sample.error);
+        }
+
+        if (sample.metrics) {
+          finalMetrics = sample.metrics;
+
+          if (
+            sample.metrics.activePhase &&
+            !["idle", "settled"].includes(sample.metrics.activePhase)
+          ) {
+            sawActiveAnimation = true;
+
+            if (Number.isFinite(sample.metrics.fps) && sample.metrics.fps > 0) {
+              fpsSamples.push(sample.metrics.fps);
+            }
+          }
+
+          if (
+            sample.done &&
+            sample.metrics.activePhase === "settled" &&
+            sample.metrics.lastEvent.endsWith("complete")
+          ) {
+            break;
           }
         }
 
-        if (
-          sample.done &&
-          sample.metrics.activePhase === "settled" &&
-          sample.metrics.lastEvent.endsWith("complete")
-        ) {
-          break;
-        }
+        await delay(POLL_INTERVAL_MS);
       }
 
-      await delay(POLL_INTERVAL_MS);
-    }
+      if (!finalMetrics) {
+        throw new Error("Profiling completed without receiving demo metrics.");
+      }
 
-    if (!finalMetrics) {
-      throw new Error("Profiling completed without receiving demo metrics.");
-    }
+      if (!sawActiveAnimation) {
+        throw new Error(
+          "Profiling never observed an active animation phase. " +
+            formatBrowserMessages(browserMessages),
+        );
+      }
 
-    if (!sawActiveAnimation) {
-      throw new Error(
-        "Profiling never observed an active animation phase. " +
-          formatBrowserMessages(browserMessages),
+      await client.send("HeapProfiler.collectGarbage");
+
+      const heapAfter = await evaluate(
+        client,
+        "performance.memory ? performance.memory.usedJSHeapSize : 0",
       );
+      const perfAfterAnimation = metricMap(
+        (await client.send("Performance.getMetrics")).metrics,
+      );
+
+      await delay(IDLE_SAMPLE_MS);
+
+      const perfAfterIdle = metricMap(
+        (await client.send("Performance.getMetrics")).metrics,
+      );
+      const idleTaskDelta =
+        (perfAfterIdle.get("TaskDuration") ?? 0) -
+        (perfAfterAnimation.get("TaskDuration") ?? 0);
+      const avgFps =
+        fpsSamples.length === 0
+          ? null
+          : Number(
+              (
+                fpsSamples.reduce((sum, value) => sum + value, 0) /
+                fpsSamples.length
+              ).toFixed(1),
+            );
+
+      results.push({
+        sizeKbTarget: scenario.minKb,
+        scenarioId: scenario.id,
+        url: targetUrl,
+        completed: finalMetrics.lastEvent.endsWith("complete"),
+        docKilobytes: finalMetrics.currentDocKilobytes,
+        docChars: finalMetrics.currentTextLength,
+        activePhase: finalMetrics.activePhase,
+        lastEvent: finalMetrics.lastEvent,
+        fps: {
+          min: fpsSamples.length ? Math.min(...fpsSamples) : null,
+          max: fpsSamples.length ? Math.max(...fpsSamples) : null,
+          avg: avgFps,
+          samples: fpsSamples.length,
+        },
+        heap: {
+          beforeMb: Number((heapBefore / 1024 / 1024).toFixed(2)),
+          afterMb: Number((heapAfter / 1024 / 1024).toFixed(2)),
+          deltaMb: Number(((heapAfter - heapBefore) / 1024 / 1024).toFixed(2)),
+        },
+        cpu: {
+          idleTaskMs: Number((idleTaskDelta * 1000).toFixed(1)),
+          idleTaskPercent: Number(
+            ((idleTaskDelta / (IDLE_SAMPLE_MS / 1000)) * 100).toFixed(2),
+          ),
+        },
+        jsHeapUsedMb: {
+          afterAnimation: Number(
+            ((perfAfterAnimation.get("JSHeapUsedSize") ?? 0) / 1024 / 1024).toFixed(2),
+          ),
+          afterIdle: Number(
+            ((perfAfterIdle.get("JSHeapUsedSize") ?? 0) / 1024 / 1024).toFixed(2),
+          ),
+        },
+      });
     }
 
-    await client.send("HeapProfiler.collectGarbage");
-
-    const heapAfter = await evaluate(
-      client,
-      "performance.memory ? performance.memory.usedJSHeapSize : 0",
+    console.log(
+      JSON.stringify(
+        {
+          url: targetUrl,
+          profiledSizes: PROFILE_SIZES,
+          scenarios: results,
+        },
+        null,
+        2,
+      ),
     );
-    const perfAfterAnimation = metricMap(
-      (await client.send("Performance.getMetrics")).metrics,
-    );
-
-    await delay(IDLE_SAMPLE_MS);
-
-    const perfAfterIdle = metricMap(
-      (await client.send("Performance.getMetrics")).metrics,
-    );
-    const idleTaskDelta =
-      (perfAfterIdle.get("TaskDuration") ?? 0) -
-      (perfAfterAnimation.get("TaskDuration") ?? 0);
-    const avgFps =
-      fpsSamples.length === 0
-        ? null
-        : Number(
-            (
-              fpsSamples.reduce((sum, value) => sum + value, 0) /
-              fpsSamples.length
-            ).toFixed(1),
-          );
-
-    const result = {
-      url: targetUrl,
-      completed: finalMetrics.lastEvent.endsWith("complete"),
-      docKilobytes: finalMetrics.currentDocKilobytes,
-      docChars: finalMetrics.currentTextLength,
-      activePhase: finalMetrics.activePhase,
-      lastEvent: finalMetrics.lastEvent,
-      fps: {
-        min: fpsSamples.length ? Math.min(...fpsSamples) : null,
-        max: fpsSamples.length ? Math.max(...fpsSamples) : null,
-        avg: avgFps,
-        samples: fpsSamples.length,
-      },
-      heap: {
-        beforeMb: Number((heapBefore / 1024 / 1024).toFixed(2)),
-        afterMb: Number((heapAfter / 1024 / 1024).toFixed(2)),
-        deltaMb: Number(((heapAfter - heapBefore) / 1024 / 1024).toFixed(2)),
-      },
-      cpu: {
-        idleTaskMs: Number((idleTaskDelta * 1000).toFixed(1)),
-        idleTaskPercent: Number(
-          ((idleTaskDelta / (IDLE_SAMPLE_MS / 1000)) * 100).toFixed(2),
-        ),
-      },
-      jsHeapUsedMb: {
-        afterAnimation: Number(
-          ((perfAfterAnimation.get("JSHeapUsedSize") ?? 0) / 1024 / 1024).toFixed(2),
-        ),
-        afterIdle: Number(
-          ((perfAfterIdle.get("JSHeapUsedSize") ?? 0) / 1024 / 1024).toFixed(2),
-        ),
-      },
-    };
-
-    console.log(JSON.stringify(result, null, 2));
   } finally {
     client?.close();
     chrome.kill("SIGTERM");

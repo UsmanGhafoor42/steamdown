@@ -86,7 +86,7 @@ export class PresenceManager {
       return 0;
     }
 
-    return this.config.intensity === "expressive" ? 420 : 280;
+    return this.config.intensity === "expressive" ? 520 : 380;
   }
 
   public isThinkingIndicatorEnabled(): boolean {
