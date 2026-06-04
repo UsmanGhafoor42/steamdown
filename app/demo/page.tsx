@@ -1,29 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatedMarkdown } from "@/components/AnimatedMarkdown/AnimatedMarkdown";
-import { MultiStreamView } from "@/components/AnimatedMarkdown/MultiStreamView";
 import {
-  BASE_STRATEGY_DOC,
-  BASE_STRATEGY_DOC_V2,
-  LONG_MARKDOWN_150KB,
-  LONG_MARKDOWN_15KB,
-  LONG_MARKDOWN_50KB,
-  PATCH_SET_3,
-  performanceScenario,
-  performanceScenarios,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import { AnimatedMarkdown } from "@/components/AnimatedMarkdown/AnimatedMarkdown";
+import {
   scenarios,
-  versions,
 } from "@/components/AnimatedMarkdown/fixtures";
 import type {
   AnimatedMarkdownHandle,
   AnimationEvent,
   PresenceIntensity,
-  TypeSpeed,
 } from "@/components/AnimatedMarkdown/types";
 
-const typeSpeedOptions: TypeSpeed[] = ["slow", "normal", "fast"];
-const speedMultipliers = [0.5, 1, 2] as const;
 const presenceOptions: PresenceIntensity[] = [
   "minimal",
   "subtle",
@@ -31,39 +25,6 @@ const presenceOptions: PresenceIntensity[] = [
   "normal",
   "expressive",
 ];
-
-const multiStreamSlots = [
-  {
-    id: "stream-a",
-    label: "Stream A — Thesis edit",
-    baseText: BASE_STRATEGY_DOC,
-    versionKey: "multi-a",
-    patchSet: {
-      label: "Stream A",
-      patches: [
-        {
-          find: "short-horizon continuation",
-          replace: "short-horizon momentum continuation",
-        },
-      ],
-    },
-  },
-  {
-    id: "stream-b",
-    label: "Stream B — Risk edit",
-    baseText: BASE_STRATEGY_DOC,
-    versionKey: "multi-b",
-    patchSet: {
-      label: "Stream B",
-      patches: [
-        {
-          find: "- Daily loss limit: 2%",
-          replace: "- Daily loss limit: 1.5%",
-        },
-      ],
-    },
-  },
-] as const;
 
 type DemoMetrics = {
   fps: number;
@@ -78,8 +39,6 @@ declare global {
   interface Window {
     __animatedMarkdownDemo?: {
       runScenario: (scenarioId: string) => Promise<void>;
-      runPerformanceScenario: (scenarioId?: string) => Promise<void>;
-      switchVersion: (versionKeyValue: string) => void;
       getMetrics: () => DemoMetrics;
     };
   }
@@ -89,6 +48,18 @@ function nextPaint() {
   return new Promise<void>((resolve) => {
     requestAnimationFrame(() => resolve());
   });
+}
+
+async function waitForDocumentReset(
+  markdownRef: RefObject<AnimatedMarkdownHandle | null>,
+  expectedText: string,
+) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await nextPaint();
+    if ((markdownRef.current?.getText() ?? "") === expectedText) {
+      return;
+    }
+  }
 }
 
 function getTextKilobytes(text: string) {
@@ -139,28 +110,21 @@ function useFps() {
 
 export default function DemoPage() {
   const markdownRef = useRef<AnimatedMarkdownHandle>(null);
-  const [baseText, setBaseText] = useState(BASE_STRATEGY_DOC);
-  const [versionKey, setVersionKey] = useState<string | number>("v1");
-  const [typeSpeed, setTypeSpeed] = useState<TypeSpeed>("normal");
-  const [speedMultiplier, setSpeedMultiplier] =
-    useState<(typeof speedMultipliers)[number]>(1);
-  const [forceReducedMotion, setForceReducedMotion] = useState(false);
+  const [baseText, setBaseText] = useState<string>(scenarios[0].baseText);
+  const [versionKey, setVersionKey] = useState<string | number>(
+    scenarios[0].versionKey,
+  );
   const [caretColor, setCaretColor] = useState("#2563eb");
   const [restoreCaretColor, setRestoreCaretColor] = useState("#b45309");
-  const [selectedScenarioId, setSelectedScenarioId] = useState("scenario-2");
+  const [selectedScenarioId, setSelectedScenarioId] = useState("scenario-1");
   const [presenceIntensity, setPresenceIntensity] =
     useState<PresenceIntensity>("normal");
-  const [showDebugOverlay, setShowDebugOverlay] = useState(false);
-  const [highVisibilityMode, setHighVisibilityMode] = useState(true);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState<AnimationEvent | null>(null);
-  const [displayedTextSnapshot, setDisplayedTextSnapshot] = useState(baseText);
+  const [displayedTextSnapshot, setDisplayedTextSnapshot] =
+    useState<string>(baseText);
   const versionSequenceRef = useRef(0);
   const runScenarioRef = useRef<(scenarioId: string) => Promise<void>>(
     async () => undefined,
-  );
-  const switchVersionRef = useRef<(versionKeyValue: string) => void>(
-    () => undefined,
   );
   const metricsRef = useRef({
     baseText,
@@ -174,18 +138,12 @@ export default function DemoPage() {
     [displayedTextSnapshot],
   );
 
-  const selectedVersionLabel = useMemo(() => {
-    return (
-      versions.find((version) => version.text === baseText)?.label ??
-      "Custom state"
-    );
-  }, [baseText]);
-
   const resetDocument = useCallback(
     async (text: string, key: string | number) => {
       versionSequenceRef.current += 1;
       setBaseText(text);
       setVersionKey(`${key}:${versionSequenceRef.current}`);
+      await nextPaint();
       await nextPaint();
     },
     [],
@@ -193,10 +151,7 @@ export default function DemoPage() {
 
   const runScenario = useCallback(
     async (scenarioId: string) => {
-      const scenario =
-        scenarios.find((item) => item.id === scenarioId) ??
-        performanceScenarios.find((item) => item.id === scenarioId) ??
-        null;
+      const scenario = scenarios.find((item) => item.id === scenarioId) ?? null;
 
       if (!scenario) {
         return;
@@ -204,95 +159,48 @@ export default function DemoPage() {
 
       setSelectedScenarioId(scenarioId);
       setLastEvent(null);
-      setStatusMessage(null);
-
-      if (scenario.id === "scenario-5") {
-        setForceReducedMotion(true);
-      }
-
-      if (scenario.id !== "scenario-5") {
-        setForceReducedMotion(false);
-      }
 
       await resetDocument(scenario.baseText, scenario.versionKey);
+      await waitForDocumentReset(markdownRef, scenario.baseText);
 
       try {
-        if (scenario.id === "scenario-7") {
-          await markdownRef.current?.play(PATCH_SET_3);
-          await markdownRef.current?.restore(BASE_STRATEGY_DOC);
+        if (scenario.id === "scenario-2") {
+          await markdownRef.current?.play({
+            label: "Select all and delete",
+            patches: [{ find: scenario.baseText, replace: "" }],
+          });
+          await markdownRef.current?.play({
+            label: "Write new document",
+            patches: [{ find: "", replace: scenario.patchSet.patches[0].replace }],
+          });
           return;
         }
 
-        if (scenario.id === "scenario-8") {
-          const playPromise = markdownRef.current?.play(PATCH_SET_3);
-
-          window.setTimeout(() => {
-            versionSequenceRef.current += 1;
-            setBaseText(BASE_STRATEGY_DOC_V2);
-            setVersionKey(`v2:${versionSequenceRef.current}`);
-          }, 500);
-
-          await playPromise;
-          return;
-        }
-
-        if (scenario.id === "scenario-9") {
-          setStatusMessage(
-            "Simulation: Stream interrupted — version key reset",
-          );
-          const playPromise = markdownRef.current?.play(scenario.patchSet);
-
-          window.setTimeout(() => {
-            versionSequenceRef.current += 1;
-            setVersionKey(`v4:${versionSequenceRef.current}`);
-          }, 500);
-
-          try {
-            await playPromise;
-          } finally {
-            window.setTimeout(() => setStatusMessage(null), 4000);
+        if (scenario.id === "scenario-4") {
+          for (let index = 0; index < scenario.patchSet.patches.length; index += 1) {
+            const patch = scenario.patchSet.patches[index];
+            await markdownRef.current?.play({
+              label: `${scenario.patchSet.label ?? "Scenario 4"} ${index + 1}`,
+              patches: [patch],
+            });
           }
-
           return;
         }
 
-        await markdownRef.current?.play(scenario.patchSet);
+        await markdownRef.current?.play({
+          label: scenario.patchSet.label,
+          patches: [...scenario.patchSet.patches],
+        });
       } catch {
-        // Cancellation is expected in version-switch scenarios.
+        // Intentional no-op for cancelled runs.
       }
     },
     [resetDocument],
   );
 
-  const restoreToBase = useCallback(async () => {
-    try {
-      await markdownRef.current?.restore(BASE_STRATEGY_DOC);
-    } catch {
-      // Restore can be cancelled by an explicit version switch.
-    }
-  }, []);
-
-  const switchVersion = useCallback((versionKeyValue: string) => {
-    const nextVersion = versions.find(
-      (version) => version.key === versionKeyValue,
-    );
-
-    if (!nextVersion) {
-      return;
-    }
-
-    setBaseText(nextVersion.text);
-    versionSequenceRef.current += 1;
-    setVersionKey(`${nextVersion.key}:${versionSequenceRef.current}`);
-  }, []);
-
   useEffect(() => {
     runScenarioRef.current = runScenario;
   }, [runScenario]);
-
-  useEffect(() => {
-    switchVersionRef.current = switchVersion;
-  }, [switchVersion]);
 
   useEffect(() => {
     metricsRef.current = {
@@ -310,10 +218,6 @@ export default function DemoPage() {
   useEffect(() => {
     window.__animatedMarkdownDemo = {
       runScenario: (scenarioId) => runScenarioRef.current(scenarioId),
-      runPerformanceScenario: (scenarioId = performanceScenario.id) =>
-        runScenarioRef.current(scenarioId),
-      switchVersion: (versionKeyValue) =>
-        switchVersionRef.current(versionKeyValue),
       getMetrics: () => {
         const animatedRoot = document.querySelector<HTMLElement>(
           ".animated-markdown-root",
@@ -386,21 +290,6 @@ export default function DemoPage() {
             <h2 className="text-sm font-semibold">Controls</h2>
 
             <label className="mt-3 block text-sm font-medium text-zinc-600">
-              Version
-              <select
-                className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-zinc-950"
-                value={String(versionKey).split(":")[0]}
-                onChange={(event) => switchVersion(event.target.value)}
-              >
-                {versions.map((version) => (
-                  <option key={version.key} value={version.key}>
-                    {version.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="mt-4 block text-sm font-medium text-zinc-600">
               Presence intensity
               <select
                 className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-zinc-950"
@@ -415,66 +304,6 @@ export default function DemoPage() {
                   </option>
                 ))}
               </select>
-            </label>
-
-            <div className="mt-4 grid grid-cols-3 overflow-hidden rounded-md border border-zinc-300">
-              {typeSpeedOptions.map((speed) => (
-                <button
-                  aria-pressed={typeSpeed === speed}
-                  className="h-9 border-r border-zinc-300 text-sm font-medium capitalize last:border-r-0 hover:bg-zinc-50 aria-pressed:bg-zinc-900 aria-pressed:text-white"
-                  key={speed}
-                  type="button"
-                  onClick={() => setTypeSpeed(speed)}
-                >
-                  {speed}
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-md border border-zinc-300">
-              {speedMultipliers.map((multiplier) => (
-                <button
-                  aria-pressed={speedMultiplier === multiplier}
-                  className="h-9 border-r border-zinc-300 text-sm font-medium last:border-r-0 hover:bg-zinc-50 aria-pressed:bg-amber-500 aria-pressed:text-zinc-950"
-                  key={multiplier}
-                  type="button"
-                  onClick={() => setSpeedMultiplier(multiplier)}
-                >
-                  {multiplier}x
-                </button>
-              ))}
-            </div>
-
-            <label className="mt-4 flex items-center justify-between gap-3 text-sm font-medium text-zinc-700">
-              Reduced motion
-              <input
-                checked={forceReducedMotion}
-                className="h-5 w-5 accent-blue-600"
-                type="checkbox"
-                onChange={(event) =>
-                  setForceReducedMotion(event.target.checked)
-                }
-              />
-            </label>
-
-            <label className="mt-3 flex items-center justify-between gap-3 text-sm font-medium text-zinc-700">
-              Debug overlay
-              <input
-                checked={showDebugOverlay}
-                className="h-5 w-5 accent-blue-600"
-                type="checkbox"
-                onChange={(event) => setShowDebugOverlay(event.target.checked)}
-              />
-            </label>
-
-            <label className="mt-3 flex items-center justify-between gap-3 text-sm font-medium text-zinc-700">
-              High visibility mode
-              <input
-                checked={highVisibilityMode}
-                className="h-5 w-5 accent-blue-600"
-                type="checkbox"
-                onChange={(event) => setHighVisibilityMode(event.target.checked)}
-              />
             </label>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
@@ -502,9 +331,9 @@ export default function DemoPage() {
               <button
                 className="h-10 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700"
                 type="button"
-                onClick={() => void restoreToBase()}
+                onClick={() => void runScenario("scenario-1")}
               >
-                Restore to base
+                Replay Scenario 1
               </button>
               <button
                 className="h-10 rounded-md border border-zinc-300 px-3 text-sm font-semibold hover:bg-zinc-50"
@@ -530,40 +359,7 @@ export default function DemoPage() {
             </div>
           </section>
 
-          <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold">Profiling</h2>
-                <p className="mt-1 text-sm text-zinc-500">
-                  Real 15/50/150 KB fixtures for browser perf checks.
-                </p>
-              </div>
-              <div className="grid grid-cols-3 gap-1 rounded-md border border-zinc-200 px-2 py-1 text-[11px] font-semibold text-zinc-600">
-                <span>{getTextKilobytes(LONG_MARKDOWN_15KB)} KB</span>
-                <span>{getTextKilobytes(LONG_MARKDOWN_50KB)} KB</span>
-                <span>{getTextKilobytes(LONG_MARKDOWN_150KB)} KB</span>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-2">
-              {performanceScenarios.map((scenario) => (
-                <button
-                  className="h-10 w-full rounded-md bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700"
-                  key={scenario.id}
-                  type="button"
-                  onClick={() => void runScenario(scenario.id)}
-                >
-                  Replay {scenario.label}
-                </button>
-              ))}
-            </div>
-          </section>
-
           <dl className="grid grid-cols-2 gap-3 rounded-md border border-zinc-200 bg-white p-4 text-sm shadow-sm">
-            <div>
-              <dt className="text-zinc-500">Version</dt>
-              <dd className="mt-1 font-semibold">{selectedVersionLabel}</dd>
-            </div>
             <div>
               <dt className="text-zinc-500">Version key</dt>
               <dd className="mt-1 font-semibold">{String(versionKey)}</dd>
@@ -586,15 +382,6 @@ export default function DemoPage() {
         </aside>
 
         <section className="min-h-[calc(100vh-2.5rem)] overflow-auto rounded-md border border-zinc-200 bg-white p-6 shadow-sm">
-          {statusMessage ? (
-            <div
-              className="mx-auto mb-4 max-w-3xl rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900"
-              role="status"
-            >
-              {statusMessage}
-            </div>
-          ) : null}
-
           <AnimatedMarkdown
             ref={markdownRef}
             baseText={baseText}
@@ -603,21 +390,10 @@ export default function DemoPage() {
             restoreCaretColor={restoreCaretColor}
             className="mx-auto max-w-3xl text-[16px] leading-7 text-zinc-900"
             proseClassName="prose-zinc prose-headings:tracking-tight prose-pre:border prose-pre:border-zinc-200 prose-pre:bg-zinc-950 prose-pre:text-zinc-50"
-            typeSpeed={typeSpeed}
-            speedMultiplier={speedMultiplier}
-            forceReducedMotion={forceReducedMotion}
             presenceIntensity={presenceIntensity}
-            showDebugOverlay={showDebugOverlay}
-            highVisibilityMode={highVisibilityMode}
+            highVisibilityMode
             onAnimationComplete={setLastEvent}
           />
-
-          <div className="mx-auto mt-10 max-w-5xl border-t border-zinc-200 pt-8">
-            <MultiStreamView
-              streams={[...multiStreamSlots]}
-              highVisibilityMode={highVisibilityMode}
-            />
-          </div>
         </section>
       </div>
     </main>

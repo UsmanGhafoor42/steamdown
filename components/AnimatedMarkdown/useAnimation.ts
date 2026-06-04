@@ -35,7 +35,6 @@ import type {
   AnimationEvent,
   Patch,
   PatchSet,
-  TypeSpeed,
 } from "./types";
 
 type OperationType = "edit" | "restore";
@@ -72,12 +71,6 @@ type SplitSegments = {
   afterText: string;
 };
 
-export type AnimationDebugInfo = {
-  cursorState: CursorLifecycleState;
-  lastScrollTarget: number | null;
-  patchLabel: string | null;
-};
-
 export type AnimationState = SplitSegments & {
   settledText: string;
   caretColor: string;
@@ -93,7 +86,6 @@ export type AnimationState = SplitSegments & {
   diffFadeOut: boolean;
   liveDiffKind: DiffHighlightKind | null;
   selectedDeleteCount: number;
-  debugInfo: AnimationDebugInfo | null;
 };
 
 type HumanPresenceCallbacks = {
@@ -110,14 +102,11 @@ type UseAnimationOptions = {
   versionKey?: string | number;
   caretColor: string;
   restoreCaretColor: string;
-  typeSpeed: TypeSpeed;
-  speedMultiplier: 0.5 | 1 | 2;
   scrollMode: "window" | "container";
   forceReducedMotion: boolean;
   animationConstants?: Partial<AnimationConstants>;
   onAnimationComplete?: (event: AnimationEvent) => void;
   humanPresence?: HumanPresenceCallbacks;
-  showDebugOverlay?: boolean;
 };
 
 const EMPTY_SEGMENTS: SplitSegments = {
@@ -142,10 +131,19 @@ const DEFAULT_CONSTANTS: AnimationConstants = {
   maxDeleteTotalMs: 500,
 };
 
-const SPEED_FACTORS: Record<TypeSpeed, number> = {
-  slow: 1.35,
-  normal: 1,
-  fast: 0.65,
+type PatchTempoIntent =
+  | "new-document"
+  | "full-rewrite"
+  | "single-line"
+  | "small-patch"
+  | "multi-line";
+
+type PatchTempoProfile = {
+  intent: PatchTempoIntent;
+  speedScale: number;
+  selectionPauseMs: number;
+  selectionStepMs: number;
+  typingChunkSize: number;
 };
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -227,7 +225,6 @@ function getInitialState(baseText: string, caretColor: string): AnimationState {
     diffFadeOut: false,
     liveDiffKind: null,
     selectedDeleteCount: 0,
-    debugInfo: null,
   };
 }
 
@@ -262,6 +259,36 @@ function getExpandedRegion(text: string, start: number, end: number) {
   return {
     start: previousBreak === -1 ? 0 : previousBreak + 2,
     end: nextBreak === -1 ? text.length : nextBreak,
+  };
+}
+
+function getFocusedEditRegion(
+  text: string,
+  start: number,
+  end: number,
+  intent: PatchTempoIntent,
+) {
+  if (intent !== "single-line" && intent !== "small-patch") {
+    return getExpandedRegion(text, start, end);
+  }
+
+  const lineStart = text.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+  const lineEndIndex = text.indexOf("\n", end);
+  const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
+
+  if (intent === "single-line") {
+    return {
+      start: lineStart,
+      end: lineEnd,
+    };
+  }
+
+  const prevLineBreak = text.lastIndexOf("\n", Math.max(0, lineStart - 2));
+  const nextLineBreak = text.indexOf("\n", Math.min(text.length, lineEnd + 1));
+
+  return {
+    start: prevLineBreak === -1 ? 0 : prevLineBreak + 1,
+    end: nextLineBreak === -1 ? text.length : nextLineBreak,
   };
 }
 
@@ -304,6 +331,21 @@ function deleteLastCharacter(
 
   if (textNode.length > 0) {
     textNode.deleteData(textNode.length - segmentLength, segmentLength);
+  }
+}
+
+function deleteFirstCharacter(
+  ref: RefObject<HTMLSpanElement | null>,
+  segmentLength: number,
+) {
+  if (!ref.current) {
+    return;
+  }
+
+  const textNode = ensureTextNode(ref.current);
+
+  if (textNode.length > 0) {
+    textNode.deleteData(0, segmentLength);
   }
 }
 
@@ -367,19 +409,89 @@ function collectHighlightFragments(text: string): string[] {
   return fragments;
 }
 
+function derivePatchTempo(
+  currentDocument: string,
+  range: { start: number; end: number },
+  findText: string,
+  replaceText: string,
+): PatchTempoProfile {
+  const replaceLength = splitGraphemes(replaceText).length;
+  const findLength = splitGraphemes(findText).length;
+  const maxLength = Math.max(findLength, replaceLength);
+  const findLines = findText ? findText.split("\n").length : 0;
+  const replaceLines = replaceText ? replaceText.split("\n").length : 0;
+  const maxLines = Math.max(findLines, replaceLines);
+
+  const isNewDocument =
+    currentDocument.trim().length === 0 && findLength === 0 && replaceLength > 0;
+  const isFullRewrite =
+    currentDocument.length > 0 &&
+    range.start === 0 &&
+    range.end === currentDocument.length;
+  const isSingleLine =
+    maxLines <= 1 && maxLength > 0 && maxLength <= 120 && findLength > 0;
+  const isSmallPatch =
+    maxLines <= 2 && maxLength > 0 && maxLength <= 220 && !isSingleLine;
+
+  if (isNewDocument) {
+    return {
+      intent: "new-document",
+      speedScale: 0.42,
+      selectionPauseMs: 120,
+      selectionStepMs: 24,
+      typingChunkSize: 1,
+    };
+  }
+
+  if (isFullRewrite) {
+    return {
+      intent: "full-rewrite",
+      speedScale: 0.42,
+      selectionPauseMs: 260,
+      selectionStepMs: 24,
+      typingChunkSize: 1,
+    };
+  }
+
+  if (isSingleLine) {
+    return {
+      intent: "single-line",
+      speedScale: 1.3,
+      selectionPauseMs: 280,
+      selectionStepMs: 34,
+      typingChunkSize: 1,
+    };
+  }
+
+  if (isSmallPatch) {
+    return {
+      intent: "small-patch",
+      speedScale: 1.15,
+      selectionPauseMs: 240,
+      selectionStepMs: 30,
+      typingChunkSize: 1,
+    };
+  }
+
+  return {
+    intent: "multi-line",
+    speedScale: 0.85,
+    selectionPauseMs: 200,
+    selectionStepMs: 26,
+    typingChunkSize: 1,
+  };
+}
+
 export function useAnimationEngine({
   baseText,
   versionKey,
   caretColor,
   restoreCaretColor,
-  typeSpeed,
-  speedMultiplier,
   scrollMode,
   forceReducedMotion,
   animationConstants,
   onAnimationComplete,
   humanPresence,
-  showDebugOverlay = false,
 }: UseAnimationOptions) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const constants = useMemo(
@@ -412,8 +524,7 @@ export function useAnimationEngine({
   const diffFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const diffCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cursorMachineRef = useRef(new CursorStateMachine());
-  const lastScrollTargetRef = useRef<number | null>(null);
-  const showDebugOverlayRef = useRef(showDebugOverlay);
+  const lastOperationIntentRef = useRef<PatchTempoIntent>("multi-line");
 
   useEffect(() => {
     onAnimationCompleteRef.current = onAnimationComplete;
@@ -422,10 +533,6 @@ export function useAnimationEngine({
   useEffect(() => {
     humanPresenceRef.current = humanPresence;
   }, [humanPresence]);
-
-  useEffect(() => {
-    showDebugOverlayRef.current = showDebugOverlay;
-  }, [showDebugOverlay]);
 
   useEffect(() => {
     caretColorRef.current = caretColor;
@@ -438,11 +545,6 @@ export function useAnimationEngine({
       prefersReducedMotion ||
       getReducedMotionPreference(),
     [forceReducedMotion, prefersReducedMotion],
-  );
-
-  const speedScale = useMemo(
-    () => SPEED_FACTORS[typeSpeed] / speedMultiplier,
-    [speedMultiplier, typeSpeed],
   );
 
   const readCurrentText = useCallback(() => {
@@ -507,7 +609,7 @@ export function useAnimationEngine({
     (
       phase: AnimationPhase,
       isThinking: boolean,
-      patchLabel: string | null = null,
+      _patchLabel: string | null = null,
     ) => {
       const mapped = cursorMachineRef.current.mapPhaseToState(phase, isThinking);
       cursorMachineRef.current.transition(mapped);
@@ -518,15 +620,7 @@ export function useAnimationEngine({
       }
 
       const cursorState = cursorMachineRef.current.getState();
-      const debugInfo = showDebugOverlayRef.current
-        ? {
-            cursorState,
-            lastScrollTarget: lastScrollTargetRef.current,
-            patchLabel,
-          }
-        : null;
-
-      updateState({ cursorState, debugInfo });
+      updateState({ cursorState });
     },
     [updateState],
   );
@@ -693,7 +787,10 @@ export function useAnimationEngine({
           continue;
         }
 
-        const animationPatches = expandPatchForAnimation(workingText, patch);
+        const isFullDocumentPatch = patch.find === workingText;
+        const animationPatches = isFullDocumentPatch
+          ? [patch]
+          : expandPatchForAnimation(workingText, patch);
         const expandedPatches =
           humanPresenceRef.current?.expandPatches?.(animationPatches) ??
           animationPatches;
@@ -731,15 +828,17 @@ export function useAnimationEngine({
         editContextLabel: null,
         selectedDeleteCount: 0,
         liveDiffKind: null,
-        debugInfo: null,
       });
 
       if (diffHighlightsRef.current.length > 0) {
         clearDiffLifecycleTimers();
+        const holdMs =
+          lastOperationIntentRef.current === "single-line" ? 20000 : 12000;
+        const fadeDurationMs = 1500;
         diffFadeTimerRef.current = setTimeout(() => {
           updateState({ diffFadeOut: true });
           diffFadeTimerRef.current = null;
-        }, 3000);
+        }, holdMs);
         diffCleanupTimerRef.current = setTimeout(() => {
           diffHighlightsRef.current = [];
           updateState({
@@ -747,7 +846,7 @@ export function useAnimationEngine({
             diffFadeOut: false,
           });
           diffCleanupTimerRef.current = null;
-        }, 3600);
+        }, holdMs + fadeDurationMs);
       }
 
       if (cancelled) {
@@ -824,7 +923,6 @@ export function useAnimationEngine({
           (stableRect.top - container.getBoundingClientRect().top) -
           viewportHeight * 0.5
         : window.scrollY + stableRect.top - viewportHeight * 0.5;
-      lastScrollTargetRef.current = targetTop;
 
       let didScroll = false;
 
@@ -859,7 +957,7 @@ export function useAnimationEngine({
   );
 
   const getDeleteDelay = useCallback(
-    (length: number) => {
+    (length: number, speedScale: number) => {
       if (length <= 0) {
         return 0;
       }
@@ -871,9 +969,9 @@ export function useAnimationEngine({
         constants.maxDeleteTotalMs,
       );
 
-      return clampedTotal / length;
+      return clampedTotal;
     },
-    [constants, speedScale],
+    [constants],
   );
 
   const getBaseTypeDelay = useCallback(
@@ -897,6 +995,7 @@ export function useAnimationEngine({
       length: number,
       replaceText: string,
       surroundingText: string,
+      speedScale: number,
     ) => {
       const baseDelay = getBaseTypeDelay(index, length) * speedScale;
       const presence = humanPresenceRef.current;
@@ -917,7 +1016,7 @@ export function useAnimationEngine({
 
       return baseDelay * clamp(presenceMultiplier, 0.55, 2.4);
     },
-    [getBaseTypeDelay, speedScale],
+    [getBaseTypeDelay],
   );
 
   const coalesceHeavyPatches = useCallback(async (patches: Patch[]) => {
@@ -959,12 +1058,24 @@ export function useAnimationEngine({
         return;
       }
 
-      const region = getExpandedRegion(currentDocument, range.start, range.end);
-      const regionPrefix = currentDocument.slice(region.start, range.start);
-      const regionSuffix = currentDocument.slice(range.end, region.end);
       const findText = currentDocument.slice(range.start, range.end);
       const findUnits = splitGraphemes(findText);
       const replaceUnits = splitGraphemes(patch.replace);
+      const tempoProfile = derivePatchTempo(
+        currentDocument,
+        range,
+        findText,
+        patch.replace,
+      );
+      lastOperationIntentRef.current = tempoProfile.intent;
+      const region = getFocusedEditRegion(
+        currentDocument,
+        range.start,
+        range.end,
+        tempoProfile.intent,
+      );
+      const regionPrefix = currentDocument.slice(region.start, range.start);
+      const regionSuffix = currentDocument.slice(range.end, region.end);
       const liveDiffKind = classifyPatchDiff(findText, patch.replace);
       const patchLabel = operation.patchSet?.label ?? null;
       const segments: SplitSegments = {
@@ -1022,7 +1133,19 @@ export function useAnimationEngine({
       await nextFrame();
       await nextFrame();
 
-      const didScroll = await measureAndScrollToCaret(operation);
+      let didScroll = false;
+      if (
+        tempoProfile.intent === "full-rewrite" ||
+        tempoProfile.intent === "new-document"
+      ) {
+        if (scrollMode === "container" && containerRef.current) {
+          containerRef.current.scrollTo({ top: 0, behavior: "auto" });
+        } else {
+          window.scrollTo({ top: 0, behavior: "auto" });
+        }
+      } else {
+        didScroll = await measureAndScrollToCaret(operation);
+      }
 
       if (!isOperationCurrent(operation)) {
         return;
@@ -1043,26 +1166,42 @@ export function useAnimationEngine({
 
       const selectionPause =
         findUnits.length > 0
-          ? Math.max(220, humanPresenceRef.current?.getSelectionPauseMs?.() ?? 0)
+          ? Math.max(
+              tempoProfile.selectionPauseMs,
+              humanPresenceRef.current?.getSelectionPauseMs?.() ?? 0,
+            )
           : 0;
 
       if (selectionPause > 0) {
-        const selectionStepDelay = Math.max(
-          30,
-          selectionPause / Math.max(1, findUnits.length),
-        );
-        for (
-          let selectedCount = 1;
-          selectedCount <= findUnits.length && isOperationCurrent(operation);
-          selectedCount += 1
-        ) {
+        if (tempoProfile.intent === "full-rewrite" && findUnits.length > 0) {
           setSplitSegments(readDomSegments(), {
             phase: "selecting",
             isThinking: false,
             liveDiffKind,
-            selectedDeleteCount: selectedCount,
+            selectedDeleteCount: findUnits.length,
           });
-          await delay(selectionStepDelay);
+          await delay(selectionPause);
+        } else {
+          const selectionStepDelay = Math.max(
+            tempoProfile.selectionStepMs,
+            selectionPause / Math.max(1, findUnits.length),
+          );
+          for (
+            let selectedCount = 1;
+            selectedCount <= findUnits.length && isOperationCurrent(operation);
+            selectedCount += 1
+          ) {
+            setSplitSegments(readDomSegments(), {
+              phase: "selecting",
+              isThinking: false,
+              liveDiffKind,
+              selectedDeleteCount: selectedCount,
+            });
+            await delay(selectionStepDelay);
+          }
+        }
+        if (!isOperationCurrent(operation)) {
+          return;
         }
         await delay(120);
         syncCursorState("selecting", false, patchLabel);
@@ -1080,12 +1219,31 @@ export function useAnimationEngine({
       });
       syncCursorState("deleting", false, patchLabel);
 
-      const deleteDelay = getDeleteDelay(findUnits.length);
+      const deleteDelay = getDeleteDelay(findUnits.length, tempoProfile.speedScale);
       if (findUnits.length > 0) {
-        await delay(deleteDelay);
-        await nextFrame();
-        if (activeDeleteRef.current) {
-          activeDeleteRef.current.textContent = "";
+        if (tempoProfile.intent === "full-rewrite") {
+          await delay(deleteDelay);
+          await nextFrame();
+          if (activeDeleteRef.current) {
+            activeDeleteRef.current.textContent = "";
+          }
+        } else {
+          const perCharDeleteDelay = Math.max(12, deleteDelay / findUnits.length);
+          for (
+            let index = findUnits.length - 1;
+            index >= 0 && isOperationCurrent(operation);
+            index -= 1
+          ) {
+            await delay(perCharDeleteDelay);
+            await nextFrame();
+            // Delete from the start so caret stays visually tied to change point.
+            deleteFirstCharacter(activeDeleteRef, findUnits[index].length);
+            setSplitSegments(readDomSegments(), {
+              phase: "deleting",
+              liveDiffKind,
+              selectedDeleteCount: 0,
+            });
+          }
         }
         setSplitSegments(readDomSegments(), {
           phase: "deleting",
@@ -1111,21 +1269,24 @@ export function useAnimationEngine({
       const surroundingText =
         segments.beforeText + regionPrefix + patch.replace + regionSuffix;
 
-      for (
-        let typedCount = 0;
-        typedCount < replaceUnits.length && isOperationCurrent(operation);
-        typedCount += 1
-      ) {
+      let typedCount = 0;
+      while (typedCount < replaceUnits.length && isOperationCurrent(operation)) {
+        const chunkSize = Math.max(1, tempoProfile.typingChunkSize);
         await delay(
           getTypeDelay(
             typedCount,
             replaceUnits.length,
             patch.replace,
             surroundingText,
+            tempoProfile.speedScale,
           ),
         );
         await nextFrame();
-        appendCharacter(activeBeforeRef, replaceUnits[typedCount]);
+        const nextChunk = replaceUnits
+          .slice(typedCount, typedCount + chunkSize)
+          .join("");
+        appendCharacter(activeBeforeRef, nextChunk);
+        typedCount += chunkSize;
         setSplitSegments(readDomSegments(), {
           phase: "typing",
           liveDiffKind: "add",
@@ -1167,10 +1328,19 @@ export function useAnimationEngine({
         return;
       }
 
+      const interPatchPauseScale =
+        tempoProfile.intent === "single-line"
+          ? 1.3
+          : tempoProfile.intent === "small-patch"
+            ? 1.15
+            : tempoProfile.intent === "multi-line"
+              ? 1
+              : 0.75;
+
       await delay(
-        didScroll
+        (didScroll
           ? constants.offscreenInterPatchBeatMs
-          : constants.interPatchBeatMs,
+          : constants.interPatchBeatMs) * interPatchPauseScale,
       );
     },
     [

@@ -355,7 +355,7 @@ export const scenarios = [
   {
     id: "scenario-1",
     label: "Scenario 1",
-    name: "Create plan",
+    name: "New document from scratch",
     versionKey: "empty",
     baseText: "",
     patchSet: PATCH_SET_1,
@@ -363,65 +363,46 @@ export const scenarios = [
   {
     id: "scenario-2",
     label: "Scenario 2",
-    name: "Single edit",
+    name: "Delete old document and write new",
     versionKey: "v1",
     baseText: BASE_STRATEGY_DOC,
-    patchSet: PATCH_SET_2,
+    patchSet: {
+      label: "Full rewrite",
+      patches: [{ find: BASE_STRATEGY_DOC, replace: BASE_STRATEGY_DOC_V2 }],
+    },
   },
   {
     id: "scenario-3",
     label: "Scenario 3",
-    name: "Multi patch",
+    name: "Single line edit",
     versionKey: "v1",
     baseText: BASE_STRATEGY_DOC,
-    patchSet: PATCH_SET_3,
+    patchSet: PATCH_SET_2,
   },
   {
     id: "scenario-4",
     label: "Scenario 4",
-    name: "Block patch",
+    name: "Multi-line edit with deletes",
     versionKey: "v1",
     baseText: BASE_STRATEGY_DOC,
-    patchSet: PATCH_SET_4,
-  },
-  {
-    id: "scenario-5",
-    label: "Scenario 5",
-    name: "Reduced motion",
-    versionKey: "v1",
-    baseText: BASE_STRATEGY_DOC,
-    patchSet: PATCH_SET_3,
-  },
-  {
-    id: "scenario-6",
-    label: "Scenario 6",
-    name: "Pure deletion",
-    versionKey: "v1",
-    baseText: BASE_STRATEGY_DOC,
-    patchSet: PATCH_SET_6,
-  },
-  {
-    id: "scenario-7",
-    label: "Scenario 7",
-    name: "Restore",
-    versionKey: "v1",
-    baseText: BASE_STRATEGY_DOC,
-    patchSet: PATCH_SET_3,
-  },
-  {
-    id: "scenario-8",
-    label: "Scenario 8",
-    name: "Switch mid-flight",
-    versionKey: "v1",
-    baseText: BASE_STRATEGY_DOC,
-    patchSet: PATCH_SET_3,
-  },
-  {
-    id: "scenario-9",
-    label: "Scenario 9",
-    name: "Stream interrupted (version reset)",
-    versionKey: "v3",
-    baseText: BASE_STRATEGY_DOC,
-    patchSet: PATCH_SET_2,
+    patchSet: {
+      label: "Multi-line risk refresh",
+      patches: [
+        {
+          find: "- NVDA\n",
+          replace: "",
+        },
+        {
+          find: "- Take profit: +15% from entry\n",
+          replace:
+            "- Take profit: +12% from entry\n- Exit on RSI(14) > 75\n",
+        },
+        {
+          find: "## Risk Management\n- Daily loss limit: 2%",
+          replace:
+            "## Risk Management\n- Daily loss limit: 1.5%\n- Pause entries after 3 losing trades",
+        },
+      ],
+    },
   },
 ] as const;

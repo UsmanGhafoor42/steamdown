@@ -10,7 +10,6 @@ export type {
   PatchSet,
   PresenceConfig,
   PresenceIntensity,
-  TypeSpeed,
 } from "./types";
 export { useHumanPresence } from "./presence/useHumanPresence";
 export { PresenceManager } from "./presence/PresenceManager";
@@ -31,6 +30,5 @@ export {
   type DiffHighlight,
   type DiffHighlightKind,
 } from "./diffHighlights";
-export type { AnimationDebugInfo } from "./useAnimation";
 export { diffToPatches, expandPatchForAnimation } from "./diffToPatches";
 export { defaultAnimationConstants } from "./useAnimation";

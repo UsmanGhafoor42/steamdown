@@ -10,8 +10,6 @@ export type PatchSet = {
   patches: Patch[];
 };
 
-export type TypeSpeed = "slow" | "normal" | "fast";
-
 export type AnimationEvent =
   | { type: "edit"; patchSet: PatchSet; cancelled: boolean }
   | { type: "restore"; targetText: string; cancelled: boolean };
@@ -60,8 +58,6 @@ export type AnimatedMarkdownProps = {
   restoreCaretColor?: string;
   className?: string;
   proseClassName?: string;
-  typeSpeed?: TypeSpeed;
-  speedMultiplier?: 0.5 | 1 | 2;
   /** Where auto-scroll is applied during active edits. */
   scrollMode?: "window" | "container";
   forceReducedMotion?: boolean;
@@ -69,8 +65,6 @@ export type AnimatedMarkdownProps = {
   onAnimationComplete?: (event: AnimationEvent) => void;
   presenceIntensity?: PresenceIntensity;
   presenceConfig?: Partial<PresenceConfig>;
-  /** Dev overlay: cursor state, phase, scroll target */
-  showDebugOverlay?: boolean;
   /** Stronger diff/selection visuals for demos */
   highVisibilityMode?: boolean;
 };

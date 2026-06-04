@@ -34,21 +34,23 @@ await ref.current?.restore(previousSnapshot);
 `restore()` are imperative one-shot events. The handle also exposes
 `skipCurrent()`, `cancelQueued()`, `cancelAll()`, and `getText()`.
 
-`speedMultiplier`, `forceReducedMotion`, and `animationConstants` are optional
-extensions added for the demo harness and profiling workflow. The core API from
-the brief still works unchanged without them.
+`forceReducedMotion` and `animationConstants` are optional extensions for host
+apps. Streaming speed is now selected automatically from patch intent and size
+(new document, full rewrite, single-line edit, small patch, multi-line edit).
 
 ## Demo Harness
 
-`/demo` includes the nine contract scenarios plus dedicated stress replays for
-`15 KB`, `50 KB`, and `150 KB` fixtures.
+`/demo` now focuses on four production scenarios:
+
+- new document from scratch
+- full document rewrite (select all, delete, rewrite)
+- single-line edit
+- multi-line edit with deletes
 
 The demo also exposes a non-UI helper at `window.__animatedMarkdownDemo` for the
 included profiling script. That helper can:
 
 - run any named scenario
-- run any stress scenario (`15/50/150 KB`)
-- switch versions
 - report current FPS, document size, version key, and animation phase
 
 ## R5 Markdown Strategy
@@ -97,8 +99,8 @@ overridden with `animationConstants`:
 - Delete: `15ms/char`, clamped to `180-500ms` total per patch
 - Type: eases from `80ms/char` to `17ms/char`
 
-`typeSpeed` (`slow`, `normal`, `fast`) and `speedMultiplier` (`0.5x`, `1x`,
-`2x`) scale those timings.
+The animation engine applies these timings through an automatic patch-based
+tempo model instead of manual speed controls.
 
 ## R4 Character Guarantee
 

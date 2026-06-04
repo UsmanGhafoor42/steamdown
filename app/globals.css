@@ -81,6 +81,13 @@ button:disabled {
   -webkit-box-decoration-break: clone;
 }
 
+.animated-markdown-block-selection {
+  background: color-mix(in srgb, #60a5fa 20%, transparent) !important;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, #2563eb 45%, transparent) !important;
+  border-radius: 4px;
+}
+
 .animated-markdown-diff-add {
   background: color-mix(in srgb, #22c55e 42%, transparent) !important;
   box-shadow: inset 0 0 0 1px
@@ -115,8 +122,9 @@ button:disabled {
 }
 
 .animated-markdown-diff-live {
-  animation: none;
+  animation: animated-markdown-diff-pulse 900ms ease-in-out infinite alternate !important;
   opacity: 1;
+  font-weight: 600;
 }
 
 .animated-markdown-edit-context {
@@ -158,6 +166,12 @@ button:disabled {
     color-mix(in srgb, #1d4ed8 78%, transparent) !important;
 }
 
+.animated-markdown-high-visibility .animated-markdown-block-selection {
+  background: color-mix(in srgb, #3b82f6 30%, transparent) !important;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, #1d4ed8 65%, transparent) !important;
+}
+
 .animated-markdown-high-visibility .animated-markdown-diff-add {
   background: color-mix(in srgb, #16a34a 62%, transparent) !important;
   box-shadow: inset 0 0 0 1px
@@ -188,6 +202,18 @@ button:disabled {
 
   100% {
     opacity: 0;
+  }
+}
+
+@keyframes animated-markdown-diff-pulse {
+  0% {
+    filter: saturate(1);
+    transform: translateZ(0);
+  }
+
+  100% {
+    filter: saturate(1.2);
+    transform: translateZ(0);
   }
 }
 
@@ -228,5 +254,9 @@ button:disabled {
   .animated-markdown-diff-add,
   .animated-markdown-diff-remove {
     animation: none;
+  }
+
+  .animated-markdown-diff-live {
+    animation: none !important;
   }
 }
