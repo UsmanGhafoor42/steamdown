@@ -138,7 +138,9 @@ function getActiveDeleteDisplay(
 
     const units = Array.from(activeDeleteText);
     const count = Math.max(0, Math.min(selectedDeleteCount, units.length));
-    const unselectedText = escapeHtml(units.slice(0, units.length - count).join(""));
+    const unselectedText = escapeHtml(
+      units.slice(0, units.length - count).join(""),
+    );
     const selectedText = units.slice(units.length - count).join("");
     if (!selectedText) {
       return unselectedText;
@@ -398,7 +400,9 @@ export const AnimatedMarkdown = forwardRef<
       {/* Always rendered markdown — never raw text */}
       <div
         data-animated-markdown-content="true"
-        className={isBlockSelecting ? "animated-markdown-block-selection" : undefined}
+        className={
+          isBlockSelecting ? "animated-markdown-block-selection" : undefined
+        }
         style={{ position: "relative" }}
       >
         <MarkdownChunk

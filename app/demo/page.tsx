@@ -9,9 +9,7 @@ import {
   type RefObject,
 } from "react";
 import { AnimatedMarkdown } from "@/components/AnimatedMarkdown/AnimatedMarkdown";
-import {
-  scenarios,
-} from "@/components/AnimatedMarkdown/fixtures";
+import { scenarios } from "@/components/AnimatedMarkdown/fixtures";
 import type {
   AnimatedMarkdownHandle,
   AnimationEvent,
@@ -171,13 +169,19 @@ export default function DemoPage() {
           });
           await markdownRef.current?.play({
             label: "Write new document",
-            patches: [{ find: "", replace: scenario.patchSet.patches[0].replace }],
+            patches: [
+              { find: "", replace: scenario.patchSet.patches[0].replace },
+            ],
           });
           return;
         }
 
         if (scenario.id === "scenario-4") {
-          for (let index = 0; index < scenario.patchSet.patches.length; index += 1) {
+          for (
+            let index = 0;
+            index < scenario.patchSet.patches.length;
+            index += 1
+          ) {
             const patch = scenario.patchSet.patches[index];
             await markdownRef.current?.play({
               label: `${scenario.patchSet.label ?? "Scenario 4"} ${index + 1}`,
@@ -242,32 +246,32 @@ export default function DemoPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-zinc-100 text-zinc-950">
+    <main className="min-h-screen bg-zinc-100 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="mx-auto grid min-h-screen w-full max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="flex flex-col gap-4">
-          <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+          <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
                   Harness
                 </p>
                 <h1 className="mt-1 text-2xl font-semibold tracking-tight">
                   Animated Markdown
                 </h1>
               </div>
-              <div className="rounded-md border border-zinc-200 px-2 py-1 text-sm font-semibold">
+              <div className="rounded-md border border-zinc-200 px-2 py-1 text-sm font-semibold dark:border-zinc-700">
                 {fps} FPS
               </div>
             </div>
           </section>
 
-          <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+          <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <h2 className="text-sm font-semibold">Scenarios</h2>
             <div className="mt-3 grid gap-2">
               {scenarios.map((scenario) => (
                 <button
                   aria-pressed={selectedScenarioId === scenario.id}
-                  className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-zinc-200 px-3 py-2 text-left text-sm transition hover:border-zinc-400 hover:bg-zinc-50 aria-pressed:border-blue-500 aria-pressed:bg-blue-50"
+                  className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-zinc-200 px-3 py-2 text-left text-sm transition hover:border-zinc-400 hover:bg-zinc-50 aria-pressed:border-blue-500 aria-pressed:bg-blue-50 dark:border-zinc-700 dark:hover:border-zinc-500 dark:hover:bg-zinc-800 dark:aria-pressed:bg-blue-950/40"
                   key={scenario.id}
                   type="button"
                   onClick={() => void runScenario(scenario.id)}
@@ -276,7 +280,9 @@ export default function DemoPage() {
                     <span className="block font-semibold">
                       {scenario.label}
                     </span>
-                    <span className="text-zinc-500">{scenario.name}</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">
+                      {scenario.name}
+                    </span>
                   </span>
                   <span className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-semibold text-white">
                     Replay
@@ -286,13 +292,13 @@ export default function DemoPage() {
             </div>
           </section>
 
-          <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+          <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <h2 className="text-sm font-semibold">Controls</h2>
 
-            <label className="mt-3 block text-sm font-medium text-zinc-600">
+            <label className="mt-3 block text-sm font-medium text-zinc-600 dark:text-zinc-300">
               Presence intensity
               <select
-                className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-zinc-950"
+                className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-zinc-950 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
                 value={presenceIntensity}
                 onChange={(event) =>
                   setPresenceIntensity(event.target.value as PresenceIntensity)
@@ -307,19 +313,19 @@ export default function DemoPage() {
             </label>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <label className="text-sm font-medium text-zinc-700">
+              <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Edit caret
                 <input
-                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white p-1"
+                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white p-1 dark:border-zinc-600 dark:bg-zinc-800"
                   type="color"
                   value={caretColor}
                   onChange={(event) => setCaretColor(event.target.value)}
                 />
               </label>
-              <label className="text-sm font-medium text-zinc-700">
+              <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Restore caret
                 <input
-                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white p-1"
+                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white p-1 dark:border-zinc-600 dark:bg-zinc-800"
                   type="color"
                   value={restoreCaretColor}
                   onChange={(event) => setRestoreCaretColor(event.target.value)}
@@ -336,14 +342,14 @@ export default function DemoPage() {
                 Replay Scenario 1
               </button>
               <button
-                className="h-10 rounded-md border border-zinc-300 px-3 text-sm font-semibold hover:bg-zinc-50"
+                className="h-10 rounded-md border border-zinc-300 px-3 text-sm font-semibold hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
                 type="button"
                 onClick={() => markdownRef.current?.skipCurrent()}
               >
                 Skip current
               </button>
               <button
-                className="h-10 rounded-md border border-zinc-300 px-3 text-sm font-semibold hover:bg-zinc-50"
+                className="h-10 rounded-md border border-zinc-300 px-3 text-sm font-semibold hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
                 type="button"
                 onClick={() => markdownRef.current?.cancelQueued()}
               >
@@ -359,21 +365,21 @@ export default function DemoPage() {
             </div>
           </section>
 
-          <dl className="grid grid-cols-2 gap-3 rounded-md border border-zinc-200 bg-white p-4 text-sm shadow-sm">
+          <dl className="grid grid-cols-2 gap-3 rounded-md border border-zinc-200 bg-white p-4 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <div>
-              <dt className="text-zinc-500">Version key</dt>
+              <dt className="text-zinc-500 dark:text-zinc-400">Version key</dt>
               <dd className="mt-1 font-semibold">{String(versionKey)}</dd>
             </div>
             <div className="col-span-2">
-              <dt className="text-zinc-500">Last event</dt>
+              <dt className="text-zinc-500 dark:text-zinc-400">Last event</dt>
               <dd className="mt-1 font-semibold">{getEventLabel(lastEvent)}</dd>
             </div>
             <div>
-              <dt className="text-zinc-500">Doc size</dt>
+              <dt className="text-zinc-500 dark:text-zinc-400">Doc size</dt>
               <dd className="mt-1 font-semibold">{currentDocKilobytes} KB</dd>
             </div>
             <div>
-              <dt className="text-zinc-500">Chars</dt>
+              <dt className="text-zinc-500 dark:text-zinc-400">Chars</dt>
               <dd className="mt-1 font-semibold">
                 {displayedTextSnapshot.length}
               </dd>
@@ -381,15 +387,15 @@ export default function DemoPage() {
           </dl>
         </aside>
 
-        <section className="min-h-[calc(100vh-2.5rem)] overflow-auto rounded-md border border-zinc-200 bg-white p-6 shadow-sm">
+        <section className="min-h-[calc(100vh-2.5rem)] overflow-auto rounded-md border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
           <AnimatedMarkdown
             ref={markdownRef}
             baseText={baseText}
             versionKey={versionKey}
             caretColor={caretColor}
             restoreCaretColor={restoreCaretColor}
-            className="mx-auto max-w-3xl text-[16px] leading-7 text-zinc-900"
-            proseClassName="prose-zinc prose-headings:tracking-tight prose-pre:border prose-pre:border-zinc-200 prose-pre:bg-zinc-950 prose-pre:text-zinc-50"
+            className="mx-auto max-w-3xl text-[16px] leading-7 text-zinc-900 dark:text-zinc-100"
+            proseClassName="prose-zinc dark:prose-invert prose-headings:tracking-tight prose-pre:border prose-pre:border-zinc-200 prose-pre:bg-zinc-950 prose-pre:text-zinc-50 dark:prose-headings:text-zinc-100 dark:prose-p:text-zinc-200 dark:prose-li:text-zinc-200 dark:prose-strong:text-zinc-100 dark:prose-pre:border-zinc-700"
             presenceIntensity={presenceIntensity}
             highVisibilityMode
             onAnimationComplete={setLastEvent}

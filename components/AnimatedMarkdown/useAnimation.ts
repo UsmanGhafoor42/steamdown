@@ -436,7 +436,7 @@ function derivePatchTempo(
   if (isNewDocument) {
     return {
       intent: "new-document",
-      speedScale: 0.42,
+      speedScale: 0.32,
       selectionPauseMs: 120,
       selectionStepMs: 24,
       typingChunkSize: 1,
@@ -446,7 +446,7 @@ function derivePatchTempo(
   if (isFullRewrite) {
     return {
       intent: "full-rewrite",
-      speedScale: 0.42,
+      speedScale: 0.32,
       selectionPauseMs: 260,
       selectionStepMs: 24,
       typingChunkSize: 1,
